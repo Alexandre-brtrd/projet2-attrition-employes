@@ -27,7 +27,13 @@ python -m coverage run -m pytest && python -m coverage report   # couverture
 ```
 
 Le modèle entraîné est fourni dans `backend/sauvegarde/` : l'interface ne réentraîne rien au
-lancement. Si ces fichiers manquent, l'interface propose de lancer l'entraînement.
+lancement. Si ces fichiers manquent ou ont été créés avec une autre version de scikit-learn,
+l'interface propose de relancer l'entraînement.
+
+**Dépannage.** Les bibliothèques doivent être installées pour le Python qui lance `main.py`. Dans
+VS Code, c'est l'interpréteur affiché en bas à droite (Ctrl+Maj+P → « Python: Select
+Interpreter »). S'il manque une bibliothèque, `main.py` affiche le Python utilisé et la commande
+exacte à exécuter.
 
 ## Organisation du dépôt
 
@@ -68,7 +74,7 @@ main.py                  point d'entrée (argparse)
 `application.py` et `historique.py` ne dépendent d'aucune fenêtre : ils sont testés. Les fichiers
 d'affichage (`fenetre.py`, `pages.py`, `composants.py`) n'effectuent aucun calcul : ils appellent
 `Application`. À la racine se trouvent aussi les fichiers exigés par l'énoncé (`README.md`,
-`DECISIONS.md`, `JOURNAL_IA.md`, `requirements.txt`), la configuration des tests (`pyproject.toml`)
+`requirements.txt`, avec `DECISIONS.md`, `JOURNAL_IA.md` et l'énoncé dans `docs/`), la configuration des tests (`pyproject.toml`)
 et la CI (`.github/workflows/`, emplacement imposé par GitHub).
 
 ## Utilisation
@@ -103,7 +109,7 @@ La barre latérale donne accès à quatre pages ; l'avertissement y reste toujou
 
 **Cible :** `Attrition` (l'employé a-t-il quitté l'entreprise ? 16 % de « oui »), donc une
 **classification binaire**. Nous voulions d'abord prédire la satisfaction au travail, mais elle n'est
-pas prévisible avec ces données (voir [DECISIONS.md](DECISIONS.md)).
+pas prévisible avec ces données (voir [DECISIONS.md](docs/DECISIONS.md)).
 
 ## Résultats du modèle
 
@@ -198,4 +204,4 @@ CustomTkinter (`fenetre.py`, `pages.py`, `composants.py`, `theme.py`), vérifié
 - pytest, exceptions attendues : <https://docs.pytest.org/en/stable/how-to/assert.html>
 - GitHub Actions pour Python : <https://docs.github.com/en/actions/use-cases-and-examples/building-and-testing/building-and-testing-python>
 
-Choix et justifications : [DECISIONS.md](DECISIONS.md) · usage de l'IA : [JOURNAL_IA.md](JOURNAL_IA.md)
+Choix et justifications : [DECISIONS.md](docs/DECISIONS.md) · usage de l'IA : [JOURNAL_IA.md](docs/JOURNAL_IA.md)
