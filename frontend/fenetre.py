@@ -135,18 +135,22 @@ class FenetrePrincipale(ctk.CTk):
         self.destroy()
 
 
-def _charger_application(fenetre: FenetrePrincipale) -> Application | None:
-    """Charge le modèle sauvegardé ; propose de l'entraîner s'il manque. Renvoie None en cas d'abandon."""
+def _charger_application(fenetre: FenetrePrincipale, message: ctk.CTkLabel) -> Application | None:
+    """Charge le modèle sauvegardé ; propose de l'entraîner s'il manque ou s'il est illisible.
+
+    Renvoie None si l'utilisateur refuse ou si l'entraînement échoue.
+    """
     try:
         return Application.depuis_fichiers()
     except FichierIntrouvableError:
-        if not messagebox.askyesno("Modèle introuvable", "Le modèle n'a pas encore été entraîné.\n\n"
-                                   "Voulez-vous l'entraîner maintenant ? (environ 30 secondes)", parent=fenetre):
-            return None
+        raison = "Le modèle n'a pas encore été entraîné."
     except DonneeInvalideError as erreur:
-        messagebox.showerror("Fichiers du modèle invalides",
-                             f"{erreur}\n\nRelancez l'entraînement : python main.py entrainer", parent=fenetre)
+        raison = f"Le modèle enregistré ne peut pas être utilisé :\n{erreur}"
+    if not messagebox.askyesno("Modèle à entraîner", f"{raison}\n\nVoulez-vous l'entraîner maintenant ? "
+                               "(environ 30 secondes)", parent=fenetre):
         return None
+    message.configure(text="Entraînement du modèle en cours (environ 30 secondes)…")
+    fenetre.update()
     try:
         entrainer_et_sauvegarder()
         return Application.depuis_fichiers()
@@ -159,12 +163,15 @@ def lancer_interface() -> None:
     """Ouvre la fenêtre principale et attend que l'utilisateur la ferme."""
     matplotlib.rcParams["font.family"] = ["Segoe UI", "DejaVu Sans"]
     fenetre = FenetrePrincipale()
-    fenetre.withdraw()
-    application = _charger_application(fenetre)
+    fenetre.maximiser()
+    # La fenêtre est visible pendant le chargement : un éventuel message apparaît devant elle.
+    message = ctk.CTkLabel(fenetre, text="Chargement du modèle…", font=police(16), text_color=TEXTE_SECONDAIRE)
+    message.place(relx=0.5, rely=0.5, anchor="center")
+    fenetre.update()
+    application = _charger_application(fenetre, message)
     if application is None:
         fenetre.destroy()
         return
+    message.destroy()
     fenetre.installer(application)
-    fenetre.deiconify()
-    fenetre.maximiser()
     fenetre.mainloop()

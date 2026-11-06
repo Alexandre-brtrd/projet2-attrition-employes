@@ -1,6 +1,7 @@
 """Test de bout en bout : entraînement, fichiers produits, puis application rechargée depuis le disque."""
 
 import os
+import sys
 
 import pytest
 
@@ -70,3 +71,12 @@ def test_main_signale_une_erreur_sans_planter(monkeypatch, capsys):
     monkeypatch.setattr(module_main, "entrainer_et_sauvegarder", entrainement_impossible)
     assert module_main.main(["entrainer"]) == 1
     assert "Fichier introuvable" in capsys.readouterr().err
+
+
+def test_main_explique_comment_installer_une_bibliotheque_manquante(monkeypatch, capsys):
+    # Une entrée None dans sys.modules fait échouer l'import comme une bibliothèque absente.
+    monkeypatch.setitem(sys.modules, "frontend.fenetre", None)
+    assert module_main.main([]) == 1
+    erreur = capsys.readouterr().err
+    assert "frontend.fenetre" in erreur
+    assert "pip install -r" in erreur

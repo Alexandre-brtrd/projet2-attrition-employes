@@ -9,7 +9,9 @@ Hiérarchie :
 
 import functools
 import os
+import pickle
 import time
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
@@ -19,6 +21,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
@@ -163,10 +166,20 @@ class Modele(ABC):
     def charger(chemin: str) -> "Modele":
         """Recharge un modèle enregistré par sauvegarder().
 
-        Lève FichierIntrouvableError si le fichier est absent, DonneeInvalideError s'il ne contient pas un Modele.
+        Lève FichierIntrouvableError si le fichier est absent, DonneeInvalideError s'il est illisible,
+        s'il a été créé avec une autre version de scikit-learn ou s'il ne contient pas un Modele.
         """
         verifier_fichier(chemin, "Lancez d'abord l'entraînement : python main.py entrainer")
-        modele = joblib.load(chemin)
+        try:
+            with warnings.catch_warnings():
+                # Un modèle d'une autre version peut donner des résultats faux : on préfère réentraîner.
+                warnings.simplefilter("error", InconsistentVersionWarning)
+                modele = joblib.load(chemin)
+        except (InconsistentVersionWarning, ImportError, AttributeError, EOFError, KeyError, TypeError,
+                ValueError, pickle.UnpicklingError) as erreur:
+            raise DonneeInvalideError(
+                f"{os.path.basename(chemin)} a été créé avec une autre version des bibliothèques ou du code "
+                f"({type(erreur).__name__}).") from None
         if not isinstance(modele, Modele):
             raise DonneeInvalideError(f"{chemin} ne contient pas un modèle du projet.")
         return modele

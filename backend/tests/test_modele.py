@@ -97,6 +97,13 @@ def test_charger_un_fichier_qui_n_est_pas_un_modele(tmp_path):
         Modele.charger(chemin)
 
 
+def test_charger_un_fichier_illisible(tmp_path):
+    chemin = tmp_path / "abime.joblib"
+    chemin.write_bytes(b"ceci n'est pas un fichier joblib")
+    with pytest.raises(DonneeInvalideError, match="autre version"):
+        Modele.charger(str(chemin))
+
+
 def test_str_et_repr(modele_logistique, colonnes):
     assert str(modele_logistique) == "Régression logistique (entraîné, 26 variables)"
     assert repr(ModeleReference(*colonnes)) == "ModeleReference(colonnes=26, entraine=False)"
