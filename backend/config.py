@@ -168,6 +168,31 @@ DESCRIPTIONS = {
     },
 }
 
+# Explication en langage courant des champs dont le libellé seul peut prêter à confusion
+# (affichée dans une bulle d'aide à côté du libellé).
+EXPLICATIONS = {
+    "DistanceFromHome": "Distance entre le domicile et le lieu de travail, de 1 à 29. Le jeu de données "
+                        "d'IBM ne précise pas l'unité (kilomètres ou milles).",
+    "Education": "Plus haut diplôme obtenu.",
+    "NumCompaniesWorked": "Nombre d'employeurs avant l'entreprise actuelle (0 = premier emploi).",
+    "TotalWorkingYears": "Toutes les années de travail, dans cette entreprise et ailleurs.",
+    "JobLevel": "Échelon du poste dans l'entreprise : 1 = débutant, 5 = haute direction.",
+    "OverTime": "L'employé fait-il régulièrement des heures supplémentaires ? C'est l'information "
+                "la plus utile au modèle.",
+    "MonthlyIncome": "Salaire brut par mois, en dollars (données fictives d'IBM).",
+    "PercentSalaryHike": "Hausse de salaire reçue lors de la dernière révision, en pourcentage.",
+    "StockOptionLevel": "Droit d'acheter des actions de l'entreprise à prix avantageux, "
+                        "de 0 (aucun) à 3 (élevé).",
+    "YearsWithCurrManager": "Depuis combien d'années l'employé travaille sous le même gestionnaire.",
+    "TrainingTimesLastYear": "Nombre de formations suivies au cours des 12 derniers mois.",
+    "PerformanceRating": "Note de la dernière évaluation annuelle. Dans ce jeu de données, tous les "
+                         "employés ont « Excellente » ou « Exceptionnelle ».",
+    "EnvironmentSatisfaction": "Satisfaction envers le milieu de travail : locaux, ambiance, outils.",
+    "RelationshipSatisfaction": "Satisfaction envers les relations avec les collègues et le gestionnaire.",
+    "JobInvolvement": "À quel point l'employé s'investit dans son travail, selon l'entreprise.",
+    "WorkLifeBalance": "Équilibre entre le travail et la vie personnelle, déclaré par l'employé.",
+}
+
 # Règles de cohérence entre deux champs : il faut petit + écart <= grand.
 # Elles sont vraies pour les 1470 employés du jeu de données.
 REGLES_COHERENCE = [

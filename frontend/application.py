@@ -13,15 +13,43 @@ import pandas as pd
 
 from frontend.historique import CHEMIN_HISTORIQUE, Historique
 from backend.modeles import Modele
-from backend.saisie_partielle import effets_champs, precision_selon_champs, risques_partiels
-from backend.config import (DOSSIER_SAUVEGARDE, GROUPES, NOM_JEU_TEST, NOM_METADONNEES, NOM_MODELE,
-                          NOM_REFERENCE, REGLES_COHERENCE, SEUIL_DECISION)
+from backend.metriques import exactitude_equilibree
+from backend.saisie_partielle import effets_champs, risques_partiels
+from backend.config import (DOSSIER_SAUVEGARDE, EXPLICATIONS, GROUPES, NOM_JEU_TEST, NOM_METADONNEES,
+                            NOM_MODELE, NOM_REFERENCE, REGLES_COHERENCE, SEUIL_DECISION)
 from backend.exceptions import DonneeInvalideError, SaisieInvalideError
 from backend.jeu_de_donnees import lire_csv, lire_json
-from backend.variables import NON_RENSEIGNE, Variable, variable_depuis_dict
+from backend.variables import NON_RENSEIGNE, Variable, VariableCategorielle, variable_depuis_dict
 
 # Bornes supérieures (exclues) des niveaux de risque affichés.
 NIVEAUX_RISQUE = [(0.30, "faible"), (0.50, "modéré"), (0.70, "élevé"), (float("inf"), "très élevé")]
+
+# Une liste de choix devient une rangée de boutons si elle a au plus ce nombre de choix
+# et si ses libellés courts tiennent ensemble dans ce nombre de caractères.
+MAX_BOUTONS, MAX_CARACTERES_BOUTONS = 5, 32
+
+
+def choix_en_boutons(variable: Variable) -> dict[str, str] | None:
+    """Libellés courts des boutons d'une liste de choix, ou None si elle doit rester déroulante.
+
+    Renvoie {libellé court affiché : texte accepté par variable.valider}. Pour une échelle,
+    « 3 — Élevée » devient « Élevée ». Les nombres et les longues listes renvoient None.
+    """
+    if not isinstance(variable, VariableCategorielle):
+        return None
+    complets = variable.choix()
+    courts = [texte.split(" — ", 1)[-1] for texte in complets]
+    if len(courts) > MAX_BOUTONS or sum(len(texte) for texte in courts) > MAX_CARACTERES_BOUTONS:
+        return None
+    if len(set(courts)) != len(courts):
+        return None
+    return dict(zip(courts, complets))
+
+
+def points(effet: float) -> str:
+    """Écrit un effet (entre -1 et 1) en points de pourcentage signés : 0.183 -> « +18 pts »."""
+    valeur = round(effet * 100)
+    return f"{valeur:+d} pts" if valeur else "≈ 0 pt"
 
 
 def pourcentage(valeur: float) -> str:
@@ -146,7 +174,7 @@ class Application:
         self._reference = reference[modele.colonnes].reset_index(drop=True)
         self._metadonnees = metadonnees
         self._historique = historique
-        self._cache_precision: dict[frozenset[str], float] = {}
+        self._cache_scores: dict[frozenset[str], np.ndarray] = {}
         self._scores_test: np.ndarray | None = None
         self._generateur = np.random.default_rng()
 
@@ -247,13 +275,86 @@ class Application:
                                           f"({valeurs[petit]} contre {valeurs[grand]}).")
         return erreurs
 
-    def precision_attendue(self, champs_connus: Iterable[str]) -> float:
-        """Exactitude équilibrée mesurée sur le test avec ces seuls champs renseignés (mise en cache)."""
+    def explication(self, nom: str) -> str:
+        """Explication en langage courant du champ (texte vide si son libellé suffit)."""
+        return EXPLICATIONS.get(nom, "")
+
+    def progression_par_groupe(self, saisies: dict[str, str]) -> dict[str, tuple[int, int]]:
+        """{section du formulaire : (champs remplis, champs de la section)}, dans l'ordre des sections."""
+        remplis = set(self.champs_renseignes(saisies))
+        return {groupe: (sum(variable.nom in remplis for variable in variables), len(variables))
+                for groupe, variables in self.variables_par_groupe().items()}
+
+    def scores_selon_champs(self, champs_connus: Iterable[str]) -> np.ndarray:
+        """Risque estimé de chaque employé du test quand seuls ces champs sont connus (mis en cache).
+
+        C'est exactement le calcul fait pour l'utilisateur : les champs vides prennent les
+        valeurs des employés de référence.
+        """
         cle = frozenset(champs_connus) & frozenset(self._variables)
-        if cle not in self._cache_precision:
-            self._cache_precision[cle] = precision_selon_champs(
-                self._modele, self._X_test, self._y_test, cle, self._reference)
-        return self._cache_precision[cle]
+        if cle not in self._cache_scores:
+            self._cache_scores[cle] = risques_partiels(self._modele, self._X_test, cle, self._reference)
+        return self._cache_scores[cle].copy()
+
+    def precision_attendue(self, champs_connus: Iterable[str]) -> float:
+        """Exactitude équilibrée mesurée sur le test avec ces seuls champs renseignés."""
+        scores = self.scores_selon_champs(champs_connus)
+        return exactitude_equilibree(self._y_test, (scores >= SEUIL_DECISION).astype(int))
+
+    def tranches_de_risque(self, champs_connus: Iterable[str], nb_tranches: int = 5) -> list[dict]:
+        """Ce que le risque affiché veut dire en pratique, mesuré sur les employés du test.
+
+        Découpe [0, 1] en nb_tranches tranches égales et renvoie, pour chacune :
+        {"bas", "haut", "employes", "partis"} (avec les mêmes champs connus que l'utilisateur).
+        Lève ValueError si nb_tranches < 1.
+        """
+        if nb_tranches < 1:
+            raise ValueError("Il faut au moins une tranche.")
+        scores = self.scores_selon_champs(champs_connus)
+        rangs = np.minimum((scores * nb_tranches).astype(int), nb_tranches - 1)
+        employes = np.bincount(rangs, minlength=nb_tranches)
+        partis = np.bincount(rangs, weights=self._y_test, minlength=nb_tranches).astype(int)
+        return [{"bas": rang / nb_tranches, "haut": (rang + 1) / nb_tranches,
+                 "employes": int(employes[rang]), "partis": int(partis[rang])}
+                for rang in range(nb_tranches)]
+
+    def situer(self, prediction: "Prediction", nb_tranches: int = 5) -> dict:
+        """Place la prédiction parmi les employés du test évalués avec les mêmes champs.
+
+        Renvoie {"depasse": part des employés du test au risque plus bas (0 à 1),
+        "tranche": la tranche de tranches_de_risque qui contient le risque}.
+        """
+        scores = self.scores_selon_champs(prediction.valeurs_connues)
+        tranches = self.tranches_de_risque(prediction.valeurs_connues, nb_tranches)
+        rang = min(int(prediction.probabilite * nb_tranches), nb_tranches - 1)
+        return {"depasse": float(np.mean(scores < prediction.probabilite)), "tranche": tranches[rang]}
+
+    def facteurs_principaux(self, prediction: "Prediction", nombre: int = 3) -> list[tuple[str, str, float]]:
+        """Les champs qui pèsent le plus dans la prédiction : [(libellé, valeur saisie, effet)].
+
+        Triés du plus fort au plus faible effet, en valeur absolue (la lambda sert de clé de tri).
+        """
+        valeurs = prediction.valeurs_connues
+        effets = sorted(prediction.effets.items(), key=lambda paire: abs(paire[1]), reverse=True)
+        return [(self.variable(nom).libelle, self.variable(nom).formater(valeurs[nom]), effet)
+                for nom, effet in effets[:nombre] if nom in valeurs]
+
+    def saisies_depuis_historique(self, ligne: dict[str, str]) -> dict[str, str]:
+        """Textes à remettre dans le formulaire pour une ligne de l'historique.
+
+        Les champs absents de la ligne restent vides. Lève DonneeInvalideError si la colonne
+        « saisies » est illisible ou contient une variable inconnue.
+        """
+        try:
+            valeurs = json.loads(ligne["saisies"])
+        except (KeyError, TypeError, json.JSONDecodeError):
+            raise DonneeInvalideError("Cette ligne de l'historique ne contient pas de saisies lisibles.") from None
+        if not isinstance(valeurs, dict):
+            raise DonneeInvalideError("Cette ligne de l'historique ne contient pas de saisies lisibles.")
+        saisies = {nom: "" for nom in self._variables}
+        for nom, valeur in valeurs.items():
+            saisies[nom] = self.variable(nom).formater(valeur)
+        return saisies
 
     def predire(self, saisies: dict[str, str], enregistrer: bool = True) -> Prediction:
         """Valide les saisies, prédit le risque et l'ajoute à l'historique.

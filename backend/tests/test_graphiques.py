@@ -19,7 +19,9 @@ def test_graphiques_d_exploration(jeu):
 
 
 def test_graphiques_d_evaluation():
-    assert _titre(figure_matrice_confusion([[254, 55], [22, 37]])).startswith("Matrice")
+    matrice = figure_matrice_confusion([[254, 55], [22, 37]])
+    assert _titre(matrice) == "Matrice de confusion : 291 employés de test sur 368 bien classés"
+    assert "fausses alertes\n(18 % des restés)" in [texte.get_text() for texte in matrice.axes[0].texts]
     assert _titre(figure_importances({"OverTime": 0.07, "Age": 0.02})) == "Variables les plus utiles au modèle"
     comparaison = {"Satisfaction": {"Référence": 0.5, "Logistique": 0.44},
                    "Départ": {"Référence": 0.5, "Logistique": 0.72}}

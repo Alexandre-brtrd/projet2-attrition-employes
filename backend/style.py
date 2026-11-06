@@ -9,18 +9,20 @@ from matplotlib.figure import Figure
 
 from backend.config import DESCRIPTIONS
 
+# « surface » est aussi le fond des cartes de l'interface (frontend/theme.py, CARTE).
+# « neutre » sert aux barres de contexte, « vert » et « rouge » aux bonnes et mauvaises réponses.
 THEMES = {
     "clair": {
-        "surface": "#fcfcfb", "encre": "#0b0b0b", "encre_secondaire": "#52514e",
-        "encre_discrete": "#898781", "grille": "#e1e0d9", "axe": "#c3c2b7",
-        "series": ["#2a78d6", "#eb6834", "#1baf7a", "#6250d6"], "rouge": "#e34948",
-        "sequentiel": ["#eef4fc", "#184f95"],
+        "surface": "#ffffff", "encre": "#191c27", "encre_secondaire": "#4f5568",
+        "encre_discrete": "#7d8396", "grille": "#eceef4", "axe": "#c9ccd8", "neutre": "#cfd2de",
+        "series": ["#4353c4", "#e0702e", "#1f9b6e", "#8a5cd1"], "rouge": "#c4314b", "vert": "#1f8a4c",
+        "sequentiel": ["#eef0fb", "#2f3d9e"],
     },
     "sombre": {
-        "surface": "#161b22", "encre": "#e6edf3", "encre_secondaire": "#9da7b3",
-        "encre_discrete": "#6e7681", "grille": "#262c36", "axe": "#3a424e",
-        "series": ["#3987e5", "#d95926", "#199e70", "#9085e9"], "rouge": "#e66767",
-        "sequentiel": ["#1b2433", "#2f6fc4"],
+        "surface": "#1a1d26", "encre": "#e9eaf0", "encre_secondaire": "#a4a9ba",
+        "encre_discrete": "#717789", "grille": "#272c39", "axe": "#3a4052", "neutre": "#3a4052",
+        "series": ["#8392ff", "#f0894a", "#3cc497", "#b494f0"], "rouge": "#ff6b81", "vert": "#4cc17a",
+        "sequentiel": ["#20242f", "#5563d6"],
     },
 }
 

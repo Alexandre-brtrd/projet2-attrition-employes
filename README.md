@@ -2,17 +2,13 @@
 
 Maxime Hamrioui et Alexandre Bertrand-Beaudet · automne 2026
 
-Application de bureau à thème sombre (CustomTkinter) qui estime le **risque qu'un employé quitte
-son entreprise** à partir de 26 caractéristiques de sa vie professionnelle et personnelle (âge, état
-civil, poste, salaire, heures supplémentaires, ancienneté, satisfaction, équilibre travail-vie
+Application de bureau (CustomTkinter, thème clair ou sombre) qui estime le **risque qu'un employé
+quitte son entreprise** à partir de 26 caractéristiques de sa vie professionnelle et personnelle (âge,
+état civil, poste, salaire, heures supplémentaires, ancienneté, satisfaction, équilibre travail-vie
 personnelle…).
 
 Le formulaire accepte des **saisies partielles** : chaque champ vide fait baisser la **précision
 attendue**, affichée en direct avec un graphique « précision selon le nombre de champs remplis ».
-
-> ⚠ **Exercice pédagogique.** Les données sont fictives et le modèle se trompe environ une fois
-> sur quatre. Plusieurs variables (âge, état civil) sont des motifs de discrimination interdits :
-> l'outil ne doit jamais servir à une décision réelle concernant un employé.
 
 ## Installation et lancement
 
@@ -22,7 +18,7 @@ Python 3.11 ou plus récent, depuis le dossier du dépôt :
 python -m pip install -r requirements.txt
 python main.py               # ouvre l'interface graphique
 python main.py entrainer     # (re)entraîne le modèle, environ 25 s
-python -m pytest             # lance les 122 tests
+python -m pytest             # lance les 155 tests (dont 13 qui ouvrent la vraie fenêtre)
 python -m coverage run -m pytest && python -m coverage report   # couverture
 ```
 
@@ -61,12 +57,12 @@ backend/
 frontend/
 ├── application.py       Application (composition : modèle + variables + historique) et Prediction
 ├── historique.py        Historique : ajout et lecture du CSV des prédictions
-├── fenetre.py           FenetrePrincipale : barre latérale de navigation, avertissement
+├── fenetre.py           FenetrePrincipale : navigation, thème clair/sombre, mode compact, raccourcis
 ├── pages.py             PagePrediction, PageModele, PageHistorique, PageAPropos
-├── composants.py        Carte, Tuile, Champ, ZoneGraphique, boutons
-├── theme.py             palette sombre et polices
-├── graphiques.py        graphiques de l'interface (précision, facteurs, position)
-└── tests/               tests de la logique de l'application
+├── composants.py        Carte, Tuile, Champ, InfoBulle, ZoneGraphique, boutons
+├── theme.py             palette (paires clair/sombre) et polices
+├── graphiques.py        graphiques de l'interface (précision, facteurs, sens du %)
+└── tests/               tests de la logique + test_interface.py (la vraie fenêtre, pilotée)
 
 main.py                  point d'entrée (argparse)
 ```
@@ -79,22 +75,32 @@ et la CI (`.github/workflows/`, emplacement imposé par GitHub).
 
 ## Utilisation
 
-La barre latérale donne accès à quatre pages ; l'avertissement y reste toujours visible.
+La barre latérale donne accès à quatre pages et au choix du thème (clair ou sombre, Ctrl+T ; le
+clair est plus lisible au projecteur). L'avertissement exigé par l'énoncé y reste visible. Dans une
+fenêtre étroite (portable, projecteur en 1024 × 768), la barre se réduit aux icônes et chaque saisie
+passe sous son libellé.
 
 1. **Prédiction** : remplissez autant de champs que vous voulez (ou chargez un des « exemples
    réels » tirés du jeu de test), puis cliquez sur **Prédire** (ou appuyez sur Entrée).
-   - En haut à droite : le risque de départ (pourcentage, badge coloré, barre) et la **précision
-     attendue** avec le nombre de champs remplis et les champs les plus utiles à remplir ensuite.
-   - Trois graphiques : précision selon le nombre de champs (avec votre position), facteurs qui
-     influencent le résultat, position de l'employé parmi ceux du jeu de test.
-   - Une saisie invalide est signalée sous le champ, en rouge, dès qu'on le quitte ; à la
+   - Les nombres se tapent ; les courtes listes (oui/non, échelles de 1 à 4) sont des rangées de
+     boutons ; les longues restent des listes déroulantes. ⓘ explique les champs ambigus. Chaque
+     section indique combien de ses champs sont remplis, et des pastilles cliquables mènent aux
+     champs les plus utiles à remplir ensuite.
+   - En haut à droite : le risque de départ, la **précision attendue**, une phrase en langage
+     courant (« parmi les employés du test au score semblable, 21 sur 32 sont vraiment partis ») et
+     les trois informations qui pèsent le plus.
+   - Trois graphiques, chacun avec un encadré « Comment lire ce graphique » : précision selon le
+     nombre de champs (avec votre position), facteurs qui font monter ou baisser le risque, et
+     « Que veut dire le % ? », qui traduit le score en taux de départ réellement observé.
+   - Une saisie invalide est signalée sous le champ, en rouge, quand on le quitte ; à la
      prédiction, toutes les erreurs (y compris les incohérences entre deux champs) sont affichées
      d'un coup. Aucune erreur ne fait planter l'application.
-2. **Le modèle** : indicateurs clés, comparaison avec la référence, matrice de confusion, variables
-   les plus utiles, comparaison « satisfaction ou départ ».
+2. **Le modèle** : indicateurs clés expliqués en mots simples, comparaison avec la référence,
+   bonnes et mauvaises réponses (matrice de confusion), variables les plus utiles, comparaison
+   « satisfaction ou départ ».
 3. **Historique** : chaque prédiction est ajoutée à `frontend/historique_predictions.csv` ;
-   cliquez sur une ligne pour revoir ses saisies.
-4. **À propos** : lecture des résultats, limites, source des données.
+   cliquez sur une ligne pour revoir ses saisies, double-cliquez pour les recharger dans le formulaire.
+4. **À propos** : lecture des résultats, limites, source des données, raccourcis clavier.
 
 ## Jeu de données
 
@@ -180,13 +186,13 @@ méthodes spéciales `__str__`, `__repr__`, `__eq__`, `__hash__`, `__len__`.
 
 ## Tests et couverture
 
-122 tests pytest, dans `backend/tests/` et `frontend/tests/` : cas usuels, cas limites (bornes
+155 tests pytest, dans `backend/tests/` et `frontend/tests/` : cas usuels, cas limites (bornes
 incluses, formulaire vide, une seule classe) et cas d'erreur (`pytest.raises`), avec `pytest.approx`
 pour les flottants. Les métriques NumPy et le calcul vectorisé des champs vides sont vérifiés contre
 scikit-learn et contre une boucle écrite à la main. GitHub Actions lance les tests à chaque `push`
 ([.github/workflows/tests.yml](.github/workflows/tests.yml)).
 
-**Couverture (coverage 7.17) : 97 %** des instructions de `backend/` et `frontend/`, hors fenêtres
+**Couverture (coverage 7.17) : 98 %** des instructions de `backend/` et `frontend/`, hors fenêtres
 CustomTkinter (`fenetre.py`, `pages.py`, `composants.py`, `theme.py`), vérifiées à la main pendant la démo
 (voir `pyproject.toml`).
 
