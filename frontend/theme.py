@@ -45,6 +45,10 @@ NIVEAUX: dict[str, tuple[Paire, Paire]] = {
     "très élevé": (("#c4314b", "#ff6b81"), ("#fbe9ec", "#33181f")),
 }
 
+# Niveau de fiabilité -> couleur du texte et de la jauge. Pas de vert ni de rouge pour « Faible » :
+# une fiabilité faible n'a rien à voir avec un risque faible (bon signe) ou très élevé (alerte).
+FIABILITE: dict[str, Paire] = {"Faible": AVERTISSEMENT, "Moyenne": ACCENT, "Bonne": SUCCES}
+
 
 def mode_sombre() -> bool:
     """Vrai si l'interface est actuellement en thème sombre."""

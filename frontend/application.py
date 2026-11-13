@@ -4,6 +4,7 @@ L'interface graphique n'appelle que cette classe ; elle ne contient aucun calcul
 """
 
 import json
+import math
 import os
 from collections.abc import Iterable
 from datetime import datetime
@@ -23,6 +24,14 @@ from backend.variables import NON_RENSEIGNE, Variable, VariableCategorielle, var
 
 # Bornes supérieures (exclues) des niveaux de risque affichés.
 NIVEAUX_RISQUE = [(0.30, "faible"), (0.50, "modéré"), (0.70, "élevé"), (float("inf"), "très élevé")]
+
+# Fiabilité affichée : niveau tiré de la précision attendue (exactitude équilibrée sur le test).
+# Calibré sur la courbe de backend/sauvegarde/metadonnees.json : sans champ 50 % (Faible) ; avec le
+# seul champ le plus utile 69 % (Moyenne) ; avec les 12 champs les plus utiles ou plus, 71 à 74 %
+# (Bonne), sauf à 19 champs (70 %). Un champ pris au hasard donne 51 % en moyenne (Faible).
+SEUIL_FIABILITE_MOYENNE = 0.65
+SEUIL_FIABILITE_BONNE = 0.71
+NIVEAUX_FIABILITE = ("Faible", "Moyenne", "Bonne")
 
 # Une liste de choix devient une rangée de boutons si elle a au plus ce nombre de choix
 # et si ses libellés courts tiennent ensemble dans ce nombre de caractères.
@@ -50,6 +59,27 @@ def points(effet: float) -> str:
     """Écrit un effet (entre -1 et 1) en points de pourcentage signés : 0.183 -> « +18 pts »."""
     valeur = round(effet * 100)
     return f"{valeur:+d} pts" if valeur else "≈ 0 pt"
+
+
+def niveau_fiabilite(precision: float) -> str:
+    """Classe une précision attendue (0 à 1) en « Faible », « Moyenne » ou « Bonne »."""
+    if precision >= SEUIL_FIABILITE_BONNE:
+        return NIVEAUX_FIABILITE[2]
+    if precision >= SEUIL_FIABILITE_MOYENNE:
+        return NIVEAUX_FIABILITE[1]
+    return NIVEAUX_FIABILITE[0]
+
+
+def fiabilite_depuis_texte(texte: str) -> str:
+    """Niveau de fiabilité d'une précision écrite en texte (ex. « 0.693 » de l'historique CSV).
+
+    Renvoie le texte tel quel s'il n'est pas un nombre fini.
+    """
+    try:
+        precision = float(texte)
+    except (TypeError, ValueError):
+        return texte
+    return niveau_fiabilite(precision) if math.isfinite(precision) else texte
 
 
 def pourcentage(valeur: float) -> str:
@@ -102,6 +132,11 @@ class Prediction:
         return dict(self._effets)
 
     @property
+    def fiabilite(self) -> str:
+        """Fiabilité du résultat en mots : Faible, Moyenne ou Bonne (voir niveau_fiabilite)."""
+        return niveau_fiabilite(self._precision_attendue)
+
+    @property
     def nb_champs(self) -> int:
         """Nombre de champs renseignés."""
         return len(self._valeurs_connues)
@@ -143,8 +178,8 @@ class Prediction:
 
     def __str__(self) -> str:
         return (f"Risque de départ {self.niveau} ({pourcentage(self._probabilite)}) : "
-                f"{self.conclusion()}. Précision attendue avec {self.nb_champs} champ(s) "
-                f"sur {self._nb_variables} : {pourcentage(self._precision_attendue)}.")
+                f"{self.conclusion()}. Fiabilité {self.fiabilite.lower()} avec {self.nb_champs} champ(s) "
+                f"sur {self._nb_variables} (précision attendue {pourcentage(self._precision_attendue)}).")
 
     def __repr__(self) -> str:
         return f"Prediction(probabilite={self._probabilite:.3f}, champs={self.nb_champs})"
@@ -328,6 +363,28 @@ class Application:
         tranches = self.tranches_de_risque(prediction.valeurs_connues, nb_tranches)
         rang = min(int(prediction.probabilite * nb_tranches), nb_tranches - 1)
         return {"depasse": float(np.mean(scores < prediction.probabilite)), "tranche": tranches[rang]}
+
+    def phrase_resultat(self, prediction: "Prediction") -> str:
+        """Une phrase courte qui traduit le score en faits observés sur les employés du test.
+
+        Ex. « Départ probable : parmi les employés du test au score semblable, 21 sur 32 sont
+        vraiment partis. » Si aucun employé du test n'a un score semblable, la phrase situe
+        plutôt le score parmi tous les employés du test.
+        """
+        position = self.situer(prediction)
+        tranche = position["tranche"]
+        debut = prediction.conclusion().capitalize()
+        if not tranche["employes"]:
+            return (f"{debut} : ce score dépasse celui de {pourcentage(position['depasse'])} "
+                    "des employés du test.")
+        partis, employes = tranche["partis"], tranche["employes"]
+        if employes == 1:
+            return (f"{debut} : le seul employé du test au score semblable "
+                    f"{'est vraiment parti' if partis else 'est resté'}.")
+        if partis == 0:
+            return f"{debut} : parmi les {employes} employés du test au score semblable, aucun n'est vraiment parti."
+        verbe = "est vraiment parti" if partis == 1 else "sont vraiment partis"
+        return f"{debut} : parmi les employés du test au score semblable, {partis} sur {employes} {verbe}."
 
     def facteurs_principaux(self, prediction: "Prediction", nombre: int = 3) -> list[tuple[str, str, float]]:
         """Les champs qui pèsent le plus dans la prédiction : [(libellé, valeur saisie, effet)].

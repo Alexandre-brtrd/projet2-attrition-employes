@@ -58,10 +58,10 @@ frontend/
 ├── application.py       Application (composition : modèle + variables + historique) et Prediction
 ├── historique.py        Historique : ajout et lecture du CSV des prédictions
 ├── fenetre.py           FenetrePrincipale : navigation, thème clair/sombre, mode compact, raccourcis
-├── pages.py             PagePrediction, PageModele, PageHistorique, PageAPropos
-├── composants.py        Carte, Tuile, Champ, InfoBulle, ZoneGraphique, boutons
+├── pages.py             PagePrediction, PageFonctionnement, PageHistorique
+├── composants.py        Carte, Tuile, Champ, InfoBulle, ZoneGraphique, Schema, boutons
 ├── theme.py             palette (paires clair/sombre) et polices
-├── graphiques.py        graphiques de l'interface (précision, facteurs, sens du %)
+├── graphiques.py        graphiques de l'interface (facteurs, sens du %)
 └── tests/               tests de la logique + test_interface.py (la vraie fenêtre, pilotée)
 
 main.py                  point d'entrée (argparse)
@@ -75,7 +75,7 @@ et la CI (`.github/workflows/`, emplacement imposé par GitHub).
 
 ## Utilisation
 
-La barre latérale donne accès à quatre pages et au choix du thème (clair ou sombre, Ctrl+T ; le
+La barre latérale donne accès à trois pages et au choix du thème (clair ou sombre, Ctrl+T ; le
 clair est plus lisible au projecteur). L'avertissement exigé par l'énoncé y reste visible. Dans une
 fenêtre étroite (portable, projecteur en 1024 × 768), la barre se réduit aux icônes et chaque saisie
 passe sous son libellé.
@@ -86,21 +86,22 @@ passe sous son libellé.
      boutons ; les longues restent des listes déroulantes. ⓘ explique les champs ambigus. Chaque
      section indique combien de ses champs sont remplis, et des pastilles cliquables mènent aux
      champs les plus utiles à remplir ensuite.
-   - En haut à droite : le risque de départ, la **précision attendue**, une phrase en langage
-     courant (« parmi les employés du test au score semblable, 21 sur 32 sont vraiment partis ») et
-     les trois informations qui pèsent le plus.
-   - Trois graphiques, chacun avec un encadré « Comment lire ce graphique » : précision selon le
-     nombre de champs (avec votre position), facteurs qui font monter ou baisser le risque, et
-     « Que veut dire le % ? », qui traduit le score en taux de départ réellement observé.
+   - En haut à droite : le risque de départ, la **fiabilité** (Faible, Moyenne ou Bonne, selon
+     les champs remplis), une phrase en langage courant (« Départ probable : parmi les employés du
+     test au score semblable, 21 sur 32 sont vraiment partis. ») et les trois informations qui
+     pèsent le plus.
+   - Deux graphiques, chacun avec un encadré « Comment lire ce graphique » : facteurs qui font
+     monter ou baisser le risque, et « Que veut dire le % ? », qui traduit le score en taux de
+     départ réellement observé.
    - Une saisie invalide est signalée sous le champ, en rouge, quand on le quitte ; à la
      prédiction, toutes les erreurs (y compris les incohérences entre deux champs) sont affichées
      d'un coup. Aucune erreur ne fait planter l'application.
-2. **Le modèle** : indicateurs clés expliqués en mots simples, comparaison avec la référence,
-   bonnes et mauvaises réponses (matrice de confusion), variables les plus utiles, comparaison
-   « satisfaction ou départ ».
-3. **Historique** : chaque prédiction est ajoutée à `frontend/historique_predictions.csv` ;
-   cliquez sur une ligne pour revoir ses saisies, double-cliquez pour les recharger dans le formulaire.
-4. **À propos** : lecture des résultats, limites, source des données, raccourcis clavier.
+2. **Comment ça marche** : deux schémas (comment le modèle décide, comment il a été entraîné puis
+   vérifié), la précision, la matrice de confusion et les variables les plus utiles, les limites,
+   des détails techniques repliables, les raccourcis clavier et la source des données.
+3. **Historique** : chaque prédiction est ajoutée à `frontend/historique_predictions.csv` ; le
+   tableau affiche sa fiabilité. Cliquez sur une ligne pour revoir ses saisies, double-cliquez pour
+   les recharger dans le formulaire.
 
 ## Jeu de données
 
@@ -158,7 +159,8 @@ vrais employés de référence** (tirés de l'entraînement) et fait la moyenne 
 ([backend/saisie_partielle.py](backend/saisie_partielle.py), calcul vectorisé
 avec `np.repeat` / `np.tile`, sans boucle). Le même calcul, appliqué aux 368 employés de test en ne
 gardant que les champs remplis, donne la précision attendue. Elle est mise en cache pour chaque
-combinaison de champs.
+combinaison de champs. L'interface l'affiche comme une fiabilité : Faible sous 65 %, Bonne à partir
+de 71 %, Moyenne entre les deux (`niveau_fiabilite` dans `frontend/application.py`).
 
 Une première version remplaçait chaque champ vide par la médiane : avec un ou deux champs remplis,
 l'employé « médian » restait toujours sous le seuil de 50 % et la précision restait bloquée à 50 %.

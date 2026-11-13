@@ -1,4 +1,4 @@
-"""Les quatre pages de la fenêtre : Prédiction, Le modèle, Historique, À propos.
+"""Les trois pages de la fenêtre : Prédiction, Comment ça marche, Historique.
 
 Les pages n'effectuent aucun calcul : elles lisent les saisies, appellent l'Application
 et affichent ce qu'elle renvoie. Chaque graphique est accompagné d'un court texte
@@ -11,19 +11,21 @@ from tkinter import messagebox, ttk
 
 import customtkinter as ctk
 
-from frontend.application import Application, Prediction, points, pourcentage
-from frontend.composants import (Carte, Champ, InfoBulle, Tuile, ZoneGraphique, bouton_principal,
+from frontend.application import (NIVEAUX_FIABILITE, SEUIL_FIABILITE_BONNE, SEUIL_FIABILITE_MOYENNE, Application,
+                                  Prediction, fiabilite_depuis_texte, niveau_fiabilite, points, pourcentage)
+from frontend.composants import (Boite, Carte, Champ, InfoBulle, Schema, Tuile, ZoneGraphique, bouton_principal,
                                  bouton_secondaire, etiquette_titre, pastille, selecteur, texte_long)
-from frontend.graphiques import figure_effets, figure_precision_champs, figure_risque_reel, figure_vide
-from frontend.theme import (ACCENT, AVERTISSEMENT, BORDURE, CARTE, CARTE_RELIEF, ERREUR, NIVEAUX, SUCCES,
-                            SURVOL, TEXTE, TEXTE_DISCRET, TEXTE_SECONDAIRE, couleur, police, theme_graphique)
+from frontend.graphiques import figure_effets, figure_risque_reel, figure_vide
+from frontend.theme import (ACCENT, AVERTISSEMENT, BORDURE, CARTE, CARTE_RELIEF, ERREUR, FIABILITE, NIVEAUX,
+                            SUCCES, SURVOL, TEXTE, TEXTE_DISCRET, TEXTE_SECONDAIRE, couleur, police, theme_graphique)
+from backend.config import SEUIL_DECISION
 from backend.exceptions import DonneeInvalideError, SaisieInvalideError
-from backend.graphiques import figure_comparaison_cibles, figure_importances, figure_matrice_confusion
+from backend.graphiques import figure_importances, figure_matrice_confusion
 from backend.style import libelle_court
 
-ETAPES = ("1.  Décrivez l'employé. Un seul champ suffit ; plus il y en a, plus le résultat est fiable.\n"
+ETAPES = ("1.  Décrivez l'employé : un seul champ suffit.\n"
           "2.  Cliquez sur « Prédire » (ou appuyez sur Entrée).\n"
-          "3.  Lisez le risque, puis les graphiques ci-dessous pour comprendre d'où il vient.")
+          "3.  Lisez le risque et ce qui pèse le plus.")
 
 
 def entete(page: ctk.CTkFrame, titre: str, sous_titre: str) -> ctk.CTkFrame:
@@ -72,9 +74,9 @@ class CarteGraphique(Carte):
 
 
 class PagePrediction(ctk.CTkFrame):
-    """Formulaire à gauche ; risque, explications et graphiques à droite."""
+    """Formulaire à gauche ; risque, fiabilité, explications et graphiques à droite."""
 
-    GRAPHIQUES = {"Précision": "precision", "Facteurs": "effets", "Que veut dire le % ?": "sens"}
+    GRAPHIQUES = {"Facteurs": "effets", "Que veut dire le % ?": "sens"}
 
     def __init__(self, parent: ctk.CTkBaseClass, application: Application,
                  apres_enregistrement: Callable[[], None]) -> None:
@@ -87,14 +89,16 @@ class PagePrediction(ctk.CTkFrame):
         self._prediction: Prediction | None = None
         self._saisies_predites: dict[str, str] = {}
         self._minuterie: str | None = None
-        self._graphique = "precision"
-        self._champs_dessines: frozenset[str] | None = None
+        self._graphique = next(iter(self.GRAPHIQUES.values()))
+        self._champs_conseil: list[str] = []
+        self._largeur_conseils = 0
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=11, uniform="colonnes")
         self.columnconfigure(1, weight=10, uniform="colonnes")
         self._construire_formulaire()
         self._construire_resultats()
         self.maj_indicateur()
+        self._afficher_graphique()
 
     def adapter(self, compact: bool) -> None:
         """Fenêtre étroite : chaque saisie passe sous son libellé et le mode d'emploi des
@@ -102,6 +106,11 @@ class PagePrediction(ctk.CTkFrame):
         for champ in self._champs.values():
             champ.adapter(compact)
         self._carte_graphique.adapter(compact)
+        # Message à gauche des boutons (fenêtre large) ou sous eux, sur toute la largeur.
+        if compact:
+            self._zone_message.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        else:
+            self._zone_message.grid(row=0, column=0, columnspan=1, sticky="ew", pady=0)
 
     # ----- Construction ---------------------------------------------------------------
 
@@ -116,7 +125,7 @@ class PagePrediction(ctk.CTkFrame):
         haut.grid(row=0, column=0, sticky="ew", padx=22, pady=(20, 2))
         ctk.CTkLabel(haut, text="Décrivez l'employé", font=police(22, True), text_color=TEXTE).pack(anchor="w")
         texte_long(haut, "Remplissez autant de champs que vous voulez : un champ vide est permis, "
-                         "mais la précision attendue baisse. Survolez ⓘ pour une explication.", 13,
+                         "mais le résultat est moins fiable. Survolez ⓘ pour une explication.", 13,
                    conteneur=carte, marge=60).pack(anchor="w", fill="x")
         exemples = ctk.CTkFrame(carte, fg_color="transparent")
         exemples.grid(row=1, column=0, sticky="w", padx=22, pady=(10, 10))
@@ -132,6 +141,7 @@ class PagePrediction(ctk.CTkFrame):
         # Les champs vides les plus utiles, en pastilles cliquables (voir _afficher_conseils).
         self._conseils = ctk.CTkFrame(carte, fg_color="transparent")
         self._conseils.grid(row=2, column=0, sticky="ew", padx=22, pady=(0, 8))
+        self._conseils.bind("<Configure>", self._conseils_redimensionnes, add="+")
 
         self._zone_champs = ctk.CTkScrollableFrame(carte, fg_color=CARTE, corner_radius=0,
                                                    scrollbar_button_color=BORDURE,
@@ -155,8 +165,10 @@ class PagePrediction(ctk.CTkFrame):
         pied = ctk.CTkFrame(carte, fg_color="transparent")
         pied.grid(row=5, column=0, sticky="ew", padx=22, pady=14)
         pied.columnconfigure(0, weight=1)
-        self._message = texte_long(pied, "", 12, conteneur=pied, marge=300)
-        self._message.grid(row=0, column=0, sticky="w")
+        self._zone_message = ctk.CTkFrame(pied, fg_color="transparent")
+        self._zone_message.grid(row=0, column=0, sticky="ew")
+        self._message = texte_long(self._zone_message, "", 12, conteneur=self._zone_message, marge=10)
+        self._message.pack(anchor="w", fill="x")
         effacer = bouton_secondaire(pied, "Tout effacer", self.effacer, width=120)
         effacer.grid(row=0, column=1, padx=10)
         InfoBulle(effacer, "Vider le formulaire (Ctrl+Suppr)")
@@ -165,7 +177,7 @@ class PagePrediction(ctk.CTkFrame):
         InfoBulle(predire, "Calculer le risque (Entrée)")
 
     def _construire_resultats(self) -> None:
-        """Colonne de droite : carte du résultat, carte des graphiques."""
+        """Colonne de droite : carte du résultat (risque et fiabilité), carte des graphiques."""
         colonne = ctk.CTkFrame(self, fg_color="transparent")
         colonne.grid(row=0, column=1, sticky="nsew")
         colonne.columnconfigure(0, weight=1)
@@ -175,7 +187,7 @@ class PagePrediction(ctk.CTkFrame):
         carte.columnconfigure((0, 1), weight=1, uniform="indicateurs")
 
         risque = ctk.CTkFrame(carte, fg_color="transparent")
-        risque.grid(row=0, column=0, sticky="ew", padx=(20, 12), pady=(14, 0))
+        risque.grid(row=0, column=0, sticky="new", padx=(20, 12), pady=(14, 0))
         etiquette_titre(risque, "Risque de départ").pack(anchor="w")
         self._risque = ctk.CTkLabel(risque, text="—", font=police(38, True), text_color=TEXTE_DISCRET, height=46)
         self._risque.pack(anchor="w")
@@ -187,20 +199,25 @@ class PagePrediction(ctk.CTkFrame):
         self._barre_risque.set(0)
         self._barre_risque.pack(fill="x")
 
-        precision = ctk.CTkFrame(carte, fg_color="transparent")
-        precision.grid(row=0, column=1, sticky="ew", padx=(12, 20), pady=(14, 0))
-        titre_precision = etiquette_titre(precision, "Précision attendue  ⓘ")
-        titre_precision.pack(anchor="w")
-        InfoBulle(titre_precision, "Si on montrait au modèle autant d'employés partis que restés, il en "
-                                   "classerait correctement ce pourcentage. Mesuré sur les employés du test, "
-                                   "avec exactement les champs que vous avez remplis. 50 % = hasard.")
-        self._precision = ctk.CTkLabel(precision, text="50 %", font=police(38, True), text_color=ACCENT, height=46)
-        self._precision.pack(anchor="w")
-        self._nb_champs = ctk.CTkLabel(precision, text="", font=police(12), text_color=TEXTE_SECONDAIRE, height=26)
+        # Jauge de fiabilité à trois niveaux, alignée sur le risque : niveau, champs remplis, jauge.
+        fiabilite = ctk.CTkFrame(carte, fg_color="transparent")
+        fiabilite.grid(row=0, column=1, sticky="new", padx=(12, 20), pady=(14, 0))
+        titre_fiabilite = etiquette_titre(fiabilite, "Fiabilité  ⓘ")
+        titre_fiabilite.pack(anchor="w")
+        InfoBulle(titre_fiabilite, "Plus vous remplissez les champs importants, plus le résultat est fiable.")
+        # Un peu plus petit que le risque : « Moyenne » doit tenir dans la fenêtre la plus étroite.
+        self._fiabilite = ctk.CTkLabel(fiabilite, text="", font=police(32, True), height=46)
+        self._fiabilite.pack(anchor="w")
+        self._nb_champs = ctk.CTkLabel(fiabilite, text="", font=police(12), text_color=TEXTE_SECONDAIRE, height=26)
         self._nb_champs.pack(anchor="w", pady=(0, 6))
-        self._barre_champs = ctk.CTkProgressBar(precision, height=8, corner_radius=4, fg_color=SURVOL,
-                                                progress_color=ACCENT)
-        self._barre_champs.pack(fill="x")
+        jauge = ctk.CTkFrame(fiabilite, fg_color="transparent", height=8)
+        jauge.pack(fill="x")
+        self._jauge: list[ctk.CTkFrame] = []
+        for rang in range(len(NIVEAUX_FIABILITE)):
+            jauge.columnconfigure(rang, weight=1, uniform="jauge")
+            segment = ctk.CTkFrame(jauge, height=8, corner_radius=4, fg_color=SURVOL)
+            segment.grid(row=0, column=rang, sticky="ew", padx=(0 if rang == 0 else 4, 0))
+            self._jauge.append(segment)
 
         textes = ctk.CTkFrame(carte, fg_color="transparent")
         textes.grid(row=1, column=0, columnspan=2, sticky="ew", padx=20, pady=(12, 14))
@@ -228,14 +245,17 @@ class PagePrediction(ctk.CTkFrame):
         self._minuterie = self.after(250, self.maj_indicateur)
 
     def maj_indicateur(self) -> None:
-        """Champs remplis par section, précision attendue, conseils et graphique de précision."""
+        """Champs remplis par section, fiabilité, conseils et avertissement « formulaire modifié »."""
         self._minuterie = None
         saisies = self._saisies()
         champs = self._application.champs_renseignes(saisies)
-        total = len(self._champs)
-        self._precision.configure(text=pourcentage(self._application.precision_attendue(champs)))
-        self._nb_champs.configure(text=f"{len(champs)} / {total} champs remplis")
-        self._barre_champs.set(len(champs) / total)
+        niveau = niveau_fiabilite(self._application.precision_attendue(champs))
+        teinte = FIABILITE[niveau]
+        self._fiabilite.configure(text=niveau, text_color=teinte)
+        rang_niveau = NIVEAUX_FIABILITE.index(niveau)
+        for rang, segment in enumerate(self._jauge):
+            segment.configure(fg_color=teinte if rang <= rang_niveau else SURVOL)
+        self._nb_champs.configure(text=f"{len(champs)} / {len(self._champs)} champs remplis")
         for groupe, (remplis, nombre) in self._application.progression_par_groupe(saisies).items():
             self._progression[groupe].configure(
                 text=f"{remplis} / {nombre}" + ("  ✓" if remplis == nombre else ""),
@@ -245,23 +265,46 @@ class PagePrediction(ctk.CTkFrame):
             self._perime.pack(anchor="w", fill="x", after=self._phrase, pady=(4, 0))
         else:
             self._perime.pack_forget()
-        if self._graphique == "precision" and frozenset(champs) != self._champs_dessines:
-            self._afficher_graphique()
+
+    def _conseils_redimensionnes(self, evenement) -> None:
+        """Redispose les pastilles quand la largeur change (pas quand seule la hauteur change)."""
+        if evenement.width != self._largeur_conseils:
+            self._largeur_conseils = evenement.width
+            self._afficher_conseils(self._champs_conseil)
 
     def _afficher_conseils(self, champs: list[str]) -> None:
-        """Pastilles cliquables : les champs vides les plus utiles à remplir ensuite."""
+        """Pastilles cliquables : les champs vides les plus utiles à remplir ensuite.
+
+        Elles passent à la ligne suivante quand la largeur ne suffit pas (largeurs estimées
+        avec la police, en pixels avant mise à l'échelle).
+        """
+        self._champs_conseil = list(champs)
         for enfant in self._conseils.winfo_children():
             enfant.destroy()
         conseilles = self._application.champs_conseilles(champs)
         if not conseilles:
             ctk.CTkLabel(self._conseils, text="Tous les champs sont remplis.", font=police(12),
-                         text_color=SUCCES).pack(side="left")
+                         text_color=SUCCES).pack(anchor="w")
             return
-        ctk.CTkLabel(self._conseils, text="Pour gagner en précision, remplissez :", font=police(12),
-                     text_color=TEXTE_SECONDAIRE).pack(side="left", padx=(0, 6))
+        reel = self._conseils.winfo_width()
+        disponible = reel / ctk.ScalingTracker.get_widget_scaling(self) if reel > 1 else float("inf")
+        phrase = "Pour une meilleure fiabilité, remplissez :"
+        elements = [(police(12).measure(phrase) + 6,
+                     lambda rangee: ctk.CTkLabel(rangee, text=phrase, font=police(12),
+                                                 text_color=TEXTE_SECONDAIRE).pack(side="left", padx=(0, 6)))]
         for variable in conseilles:
-            pastille(self._conseils, libelle_court(variable.nom),
-                     lambda nom=variable.nom: self._defiler_vers(self._champs[nom])).pack(side="left", padx=2)
+            libelle = libelle_court(variable.nom)
+            elements.append((police(12, True).measure(libelle) + 36, lambda rangee, nom=variable.nom, texte=libelle:
+                             pastille(rangee, texte, lambda: self._defiler_vers(self._champs[nom])).pack(
+                                 side="left", padx=2)))
+        rangee, occupe = None, 0.0
+        for largeur, creer in elements:
+            if rangee is None or (occupe and occupe + largeur > disponible):
+                rangee = ctk.CTkFrame(self._conseils, fg_color="transparent")
+                rangee.pack(anchor="w", pady=(0 if occupe == 0 else 4, 0))
+                occupe = 0.0
+            creer(rangee)
+            occupe += largeur
 
     def _choisir_graphique(self, choix: str) -> None:
         """Appelé par le sélecteur de graphique."""
@@ -271,39 +314,22 @@ class PagePrediction(ctk.CTkFrame):
     def _afficher_graphique(self) -> None:
         """Dessine le graphique choisi et son mode d'emploi."""
         theme = theme_graphique()
-        champs = self._application.champs_renseignes(self._saisies())
-        meta = self._application.metadonnees
-        nb_test = meta.get("lignes", {}).get("test", "les")
-        if self._graphique == "precision":
-            self._champs_dessines = frozenset(champs)
-            ordre = meta["courbe_precision"].get("ordre", [])
-            figure = figure_precision_champs(meta["courbe_precision"], len(champs),
-                                             self._application.precision_attendue(champs), theme=theme,
-                                             premier_champ=libelle_court(ordre[0]) if ordre else None)
-            lecture = (f"Chaque point est mesuré sur {nb_test} employés que le modèle n'a jamais vus. La ligne "
-                       "bleue montre la précision quand on remplit d'abord les champs les plus utiles ; la ligne "
-                       "orange, quand on les remplit au hasard. Le gros point représente votre formulaire. "
-                       "Remplir les champs proposés au-dessus le fait monter le plus vite.")
-        elif self._graphique == "effets":
+        if self._graphique == "effets":
             if self._prediction is None:
                 figure = figure_vide("Cliquez sur « Prédire » pour voir ce qui influence le résultat.", theme)
             else:
                 valeurs = {nom: self._application.variable(nom).formater(valeur)
                            for nom, valeur in self._prediction.valeurs_connues.items()}
                 figure = figure_effets(self._prediction.effets, valeurs, theme=theme)
-            lecture = ("Pour chaque information saisie, on recalcule le risque comme si ce champ était resté "
-                       "vide. La barre montre l'écart, en points de pourcentage : rouge, l'information fait "
-                       "monter le risque ; verte, elle le fait baisser. Les écarts ne s'additionnent pas "
-                       "exactement, car les informations interagissent.")
+            lecture = ("Rouge : l'information fait monter le risque ; vert : elle le fait baisser. "
+                       "La longueur de la barre montre de combien, en points de pourcentage.")
         else:
-            connus = self._prediction.valeurs_connues if self._prediction else champs
+            connus = (self._prediction.valeurs_connues if self._prediction
+                      else self._application.champs_renseignes(self._saisies()))
             figure = figure_risque_reel(self._application.tranches_de_risque(connus),
                                         self._prediction.probabilite if self._prediction else None, theme=theme)
-            lecture = ("Le pourcentage affiché est un score de risque, pas une probabilité exacte : pendant "
-                       "l'entraînement, les départs (16 % des employés) ont reçu autant de poids que les "
-                       "maintiens. Ce graphique le traduit en faits : on a calculé le score des employés du "
-                       "test avec les mêmes champs que vous, puis compté combien sont vraiment partis dans "
-                       "chaque tranche.")
+            lecture = ("Le % affiché est un score, pas une probabilité exacte. Chaque barre montre combien "
+                       "d'employés du test au score semblable sont vraiment partis.")
         self._carte_graphique.zone.afficher(figure)
         self._carte_graphique.expliquer(lecture)
 
@@ -345,30 +371,17 @@ class PagePrediction(ctk.CTkFrame):
             self._apres_enregistrement()
 
     def _afficher_prediction(self, prediction: Prediction) -> None:
-        """Risque, badge coloré, phrases en langage courant et facteurs principaux."""
+        """Risque, badge coloré, phrase en langage courant et facteurs principaux."""
         couleur_niveau, fond = NIVEAUX[prediction.niveau]
         self._risque.configure(text=pourcentage(prediction.probabilite), text_color=couleur_niveau)
         self._badge.configure(text=f"   Risque {prediction.niveau}   ",
                               fg_color=fond, text_color=couleur_niveau)
         self._barre_risque.configure(progress_color=couleur_niveau)
         self._barre_risque.set(prediction.probabilite)
-
-        position = self._application.situer(prediction)
-        tranche = position["tranche"]
-        phrase = (f"Le modèle prévoit un {prediction.conclusion()}. Ce score dépasse celui de "
-                  f"{pourcentage(position['depasse'])} des employés du test.")
-        if tranche["employes"]:
-            phrase += (f" Parmi les employés du test au score semblable ({tranche['bas'] * 100:.0f} à "
-                       f"{tranche['haut'] * 100:.0f} %), {tranche['partis']} sur {tranche['employes']} sont "
-                       f"vraiment partis ({pourcentage(tranche['partis'] / tranche['employes'])}).")
-        phrase += (f" Avec {prediction.nb_champs} champ(s) rempli(s) sur {prediction.nb_variables}, le modèle "
-                   f"classe correctement environ {pourcentage(prediction.precision_attendue)} des employés "
-                   "(50 % = hasard).")
-        self._phrase.configure(text=phrase)
+        self._phrase.configure(text=self._application.phrase_resultat(prediction))
         self._afficher_facteurs(prediction)
         self.maj_indicateur()
-        if self._graphique != "precision":
-            self._afficher_graphique()
+        self._afficher_graphique()
 
     def _afficher_facteurs(self, prediction: Prediction) -> None:
         """Les trois informations qui pèsent le plus, avec leur effet en points."""
@@ -407,8 +420,7 @@ class PagePrediction(ctk.CTkFrame):
         self._facteurs.pack_forget()
         self._afficher_message("")
         self.maj_indicateur()
-        if self._graphique != "precision":
-            self._afficher_graphique()
+        self._afficher_graphique()
 
     def remplir(self, saisies: dict[str, str], message: str) -> None:
         """Remplace tout le formulaire par saisies (ex. un exemple ou une ligne de l'historique)."""
@@ -434,73 +446,107 @@ class PagePrediction(ctk.CTkFrame):
         champ.donner_focus()
 
 
-class PageModele(ctk.CTkFrame):
-    """Indicateurs clés, comparaison des modèles, explications et graphiques d'évaluation."""
+class PageFonctionnement(ctk.CTkScrollableFrame):
+    """« Comment ça marche », à lire de haut en bas : fonctionnement et entraînement en schémas,
+    résultats et limites, détails techniques (repliés), raccourcis clavier et sources."""
 
-    GRAPHIQUES = {"Bonnes et mauvaises réponses": "matrice", "Variables utiles": "importances",
-                  "Pourquoi pas la satisfaction ?": "cibles"}
+    GRAPHIQUES = {"Bonnes et mauvaises réponses": "matrice", "Variables utiles": "importances"}
 
     def __init__(self, parent: ctk.CTkBaseClass, application: Application) -> None:
-        super().__init__(parent, fg_color="transparent")
-        self._meta = application.metadonnees
-        meta = self._meta
-        retenu = meta["metriques_test"][meta["modele"]]
-        reference = meta["metriques_test"]["Référence (classe majoritaire)"]
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
-        entete(self, f"Le modèle : {meta['modele'].lower()}",
-               f"Choisi par validation croisée sur {meta['lignes']['entrainement']} employés d'entraînement, "
-               f"puis évalué une seule fois sur {meta['lignes']['test']} employés de test qu'il n'avait jamais "
-               f"vus. Entraîné le {meta['date_entrainement'].replace('T', ' à ')} en "
-               f"{meta['duree_entrainement_s']:.2f} s.").grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        super().__init__(parent, fg_color="transparent", scrollbar_button_color=BORDURE,
+                         scrollbar_button_hover_color=SURVOL)
+        self._meta = meta = application.metadonnees
+        lignes = meta["lignes"]
+        precision = meta["metriques_test"][meta["modele"]]["exactitude_equilibree"]
+        hasard = pourcentage(meta["metriques_test"]["Référence (classe majoritaire)"]["exactitude_equilibree"])
+        entete(self, "Comment ça marche",
+               f"L'application estime le risque qu'un employé quitte son entreprise à partir de son profil "
+               f"(jusqu'à {len(application.variables)} informations), avec un modèle qui a appris sur "
+               f"{lignes['total']} employés fictifs.").pack(anchor="w", fill="x", padx=4, pady=(0, 14))
 
-        tuiles = ctk.CTkFrame(self, fg_color="transparent")
-        tuiles.grid(row=1, column=0, sticky="ew", pady=(0, 14))
-        detectes = meta["matrice_confusion"][1][1]
-        departs_test = sum(meta["matrice_confusion"][1])
-        precision = retenu["exactitude_equilibree"]
-        donnees_tuiles = [
-            ("Précision (exactitude équilibrée)", pourcentage(precision),
-             f"Sur 100 départs et 100 maintiens, environ {precision * 100:.0f} bien classés. Hasard : "
-             f"{pourcentage(reference['exactitude_equilibree'])}.", ACCENT),
-            ("Validation croisée", pourcentage(meta["validation_croisee"][meta["modele"]]),
-             "Même mesure, faite avant le test sur l'entraînement (5 essais).", TEXTE),
-            ("AUC", f"{retenu.get('auc', 0.5):.2f}".replace(".", ","),
-             "Chance qu'un employé parti ait un score plus haut qu'un employé resté (hasard : 0,50).", TEXTE),
-            ("Départs détectés", f"{detectes} sur {departs_test}",
-             f"Soit {pourcentage(retenu['rappel_depart'])} des départs du test.", TEXTE),
+        self._schemas = [
+            self._carte_schema("Comment le modèle décide", [
+                [("Profil de l'employé", "Les champs que vous remplissez ; un champ vide est permis.")],
+                [(f"Modèle ({meta['modele'].lower()})", "Il pèse chaque information selon ce qu'il a appris.")],
+                [("Score de risque", "Un pourcentage entre 0 et 100 %.")],
+                [("Départ probable / Reste", f"Départ probable si le score atteint {pourcentage(SEUIL_DECISION)} ; "
+                                             "sinon, l'employé reste.")],
+            ]),
+            self._carte_schema("Comment il a appris, puis a été vérifié", [
+                [(f"{lignes['total']} employés", f"Données fictives d'IBM ; {pourcentage(meta['taux_depart'])} "
+                                                 "sont partis.")],
+                [(f"{lignes['entrainement']} pour apprendre", "Le modèle y apprend les liens entre profil et départ."),
+                 (f"{lignes['test']} pour tester", "Mis de côté : le modèle ne les voit jamais en apprenant.")],
+                [(f"Précision mesurée {pourcentage(precision)}", f"Sur les employés de test. Au hasard : {hasard}.")],
+            ]),
         ]
-        for colonne, (titre, valeur, detail, teinte) in enumerate(donnees_tuiles):
-            tuiles.columnconfigure(colonne, weight=1, uniform="tuiles")
-            Tuile(tuiles, titre, valeur, detail, teinte).grid(row=0, column=colonne, sticky="nsew",
-                                                              padx=(0 if colonne == 0 else 6, 0))
 
-        bas = ctk.CTkFrame(self, fg_color="transparent")
-        bas.grid(row=2, column=0, sticky="nsew")
-        bas.columnconfigure(0, weight=5, uniform="bas")
-        bas.columnconfigure(1, weight=6, uniform="bas")
-        bas.rowconfigure(0, weight=1)
-        self._construire_details(bas)
-
-        self._carte_graphique = CarteGraphique(bas, list(self.GRAPHIQUES), self._choisir_graphique)
-        self._carte_graphique.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
+        Tuile(self, "Précision (exactitude équilibrée)", pourcentage(precision),
+              f"Sur 100 employés (50 partis, 50 restés), le modèle en classe correctement environ "
+              f"{precision * 100:.0f}. Au hasard : {hasard}.", ACCENT).pack(fill="x", padx=4, pady=(0, 10))
+        self._carte_graphique = CarteGraphique(self, list(self.GRAPHIQUES), self._choisir_graphique)
+        # La page défile : le graphique reçoit une hauteur fixe au lieu de remplir la fenêtre.
+        self._carte_graphique.zone.configure(height=380)
+        self._carte_graphique.zone.pack_propagate(False)
+        self._carte_graphique.pack(fill="x", padx=4, pady=(0, 10))
         self._graphique = next(iter(self.GRAPHIQUES.values()))
         self._afficher_graphique()
 
-    def _construire_details(self, parent: ctk.CTkFrame) -> None:
-        """Carte de gauche : tableau comparatif, définitions, limites, nettoyage."""
+        departs_test = sum(meta["matrice_confusion"][1])
+        self._carte_texte("Limites", f"• Seulement {departs_test} départs parmi les employés de test : la "
+                                     "précision peut varier d'environ 3 points.\n"
+                                     "• Données fictives et modèle simple : il se trompe pour environ un "
+                                     "employé sur quatre.")
+        self._construire_details()
+        self._carte_texte("Raccourcis clavier", "Entrée : prédire · Ctrl+Suppr : vider le formulaire · "
+                                                "Ctrl+1 à Ctrl+3 : changer de page · Ctrl+T : thème clair ou sombre.")
+        texte_long(self, "Données : « IBM HR Analytics Employee Attrition & Performance », Kaggle (pavansubhasht), "
+                         "licences Open Database License (base) et Database Contents License (contenu).\n"
+                         "Maxime Hamrioui et Alexandre Bertrand-Beaudet — INF1007, automne 2026.", 11,
+                   TEXTE_DISCRET, conteneur=self, marge=30).pack(anchor="w", fill="x", padx=8, pady=(6, 10))
+
+    # ----- Construction ---------------------------------------------------------------
+
+    def _carte(self, titre: str) -> Carte:
+        """Carte pleine largeur avec son titre."""
+        carte = Carte(self)
+        carte.pack(fill="x", padx=4, pady=(0, 10))
+        ctk.CTkLabel(carte, text=titre, font=police(16, True), text_color=TEXTE).pack(anchor="w", padx=20,
+                                                                                      pady=(14, 2))
+        return carte
+
+    def _carte_texte(self, titre: str, texte: str) -> None:
+        """Carte qui contient seulement un titre et un paragraphe."""
+        carte = self._carte(titre)
+        texte_long(carte, texte, 13, conteneur=carte, marge=50).pack(anchor="w", fill="x", padx=20, pady=(0, 16))
+
+    def _carte_schema(self, titre: str, etapes: list[list[Boite]]) -> Schema:
+        """Carte qui contient un schéma ; renvoie le schéma (à redessiner au changement de thème)."""
+        schema = Schema(self._carte(titre), etapes)
+        schema.pack(fill="x", padx=20, pady=(10, 18))
+        return schema
+
+    def _construire_details(self) -> None:
+        """Section « Détails techniques », fermée au départ : tableau des modèles et définitions."""
         meta = self._meta
-        carte = Carte(parent)
-        carte.grid(row=0, column=0, sticky="nsew")
-        zone = ctk.CTkScrollableFrame(carte, fg_color=CARTE, scrollbar_button_color=BORDURE,
-                                      scrollbar_button_hover_color=SURVOL)
-        zone.pack(fill="both", expand=True, padx=6, pady=6)
-        etiquette_titre(zone, "Comparaison des modèles (jeu de test)").pack(anchor="w", padx=12, pady=(10, 6))
+        retenu = meta["metriques_test"][meta["modele"]]
+        reference = meta["metriques_test"]["Référence (classe majoritaire)"]
+        carte = Carte(self)
+        carte.pack(fill="x", padx=4, pady=(0, 10))
+        self._bouton_details = ctk.CTkButton(carte, text="", command=self.basculer_details, anchor="w", height=40,
+                                             corner_radius=10, fg_color="transparent", hover_color=SURVOL,
+                                             text_color=TEXTE, font=police(16, True))
+        self._bouton_details.pack(fill="x", padx=8, pady=8)
+        self._details = ctk.CTkFrame(carte, fg_color="transparent")
+        self._details_ouverts = False
+        self._maj_bouton_details()
+
+        etiquette_titre(self._details, "Comparaison des modèles (jeu de test)").pack(anchor="w", padx=12, pady=(0, 6))
         echelle = ctk.ScalingTracker.get_widget_scaling(self)
         colonnes = {"modele": ("Modèle", 170), "equilibree": ("Précision", 72), "validation": ("Valid. cr.", 72),
                     "exactitude": ("Exactitude", 72), "auc": ("AUC", 48)}
-        self._tableau = ttk.Treeview(zone, columns=list(colonnes), show="headings", height=3, selectmode="none",
-                                     style="Theme.Treeview")
+        self._tableau = ttk.Treeview(self._details, columns=list(colonnes), show="headings", height=3,
+                                     selectmode="none", style="Theme.Treeview")
         for cle, (titre, largeur) in colonnes.items():
             self._tableau.heading(cle, text=titre)
             self._tableau.column(cle, width=int(largeur * echelle), anchor="w" if cle == "modele" else "center")
@@ -508,28 +554,46 @@ class PageModele(ctk.CTkFrame):
         for nom, resultats in meta["metriques_test"].items():
             self._tableau.insert("", "end", tags=("retenu",) if nom == meta["modele"] else (), values=(
                 nom, pourcentage(resultats["exactitude_equilibree"]), pourcentage(meta["validation_croisee"][nom]),
-                pourcentage(resultats["exactitude"]), f"{resultats.get('auc', 0.5):.2f}".replace(".", ",")))
+                pourcentage(resultats["exactitude"]), self._decimal(resultats.get("auc", 0.5))))
         self._tableau.pack(fill="x", padx=12)
 
-        satisfaction = meta["comparaison_cibles"]["Satisfaction (≥ 3 sur 4)"]
-        sections = [
-            ("Pourquoi « précision » et pas « exactitude » ?", "La précision affichée partout est l'exactitude "
-             "équilibrée : la moyenne entre la part des départs bien détectés et celle des maintiens bien "
-             "détectés. Répondre toujours la même chose donne 50 %. L'exactitude simple est trompeuse ici : "
-             f"répondre toujours « reste » donne déjà "
-             f"{pourcentage(meta['metriques_test']['Référence (classe majoritaire)']['exactitude'])}, "
-             "sans détecter un seul départ."),
-            ("Pourquoi pas la satisfaction ?", "Prédire si un employé est satisfait (3 ou 4 sur 4) donne "
-             + " et ".join(f"{pourcentage(valeur)} ({nom.lower()})" for nom, valeur in satisfaction.items())
-             + " : aucun modèle ne fait mieux que le hasard. Le départ, lui, est prévisible."),
-            ("Limites", f"Seulement {sum(meta['matrice_confusion'][1])} départs dans le jeu de test (environ "
-             "± 3 points d'incertitude), données fictives, modèle linéaire : il se trompe pour environ un "
-             "employé sur quatre."),
-            ("Nettoyage des données", "\n".join(f"• {etape}" for etape in meta["nettoyage"])),
+        definitions = [
+            ("AUC", f"{self._decimal(retenu.get('auc', 0.5))} : chance qu'un employé parti reçoive un score plus "
+                    "haut qu'un employé resté (hasard : 0,50)."),
+            ("Validation croisée", f"{pourcentage(meta['validation_croisee'][meta['modele']])} : la même mesure, "
+                                   f"faite avant le test sur les {meta['lignes']['entrainement']} employés "
+                                   "d'entraînement (5 essais). Elle a servi à choisir le modèle."),
+            ("Précision = exactitude équilibrée", "C'est la moyenne entre la part des départs bien détectés et "
+             "celle des maintiens bien détectés : répondre toujours la même chose donne 50 %. L'exactitude simple "
+             f"serait trompeuse : répondre toujours « reste » donne déjà {pourcentage(reference['exactitude'])}."),
+            ("Calcul de la fiabilité", "Les champs vides sont remplacés par la moyenne des risques obtenus avec "
+             "des employés de référence, et la précision ainsi obtenue sur les employés de test, avec les mêmes "
+             f"champs remplis, donne le niveau : Faible sous {pourcentage(SEUIL_FIABILITE_MOYENNE)}, Bonne à partir "
+             f"de {pourcentage(SEUIL_FIABILITE_BONNE)}, Moyenne entre les deux."),
         ]
-        for titre, texte in sections:
-            etiquette_titre(zone, titre).pack(anchor="w", padx=12, pady=(16, 2))
-            texte_long(zone, texte, 12, conteneur=carte, marge=70).pack(anchor="w", fill="x", padx=12)
+        for titre, texte in definitions:
+            etiquette_titre(self._details, titre).pack(anchor="w", padx=12, pady=(16, 2))
+            texte_long(self._details, texte, 12, conteneur=carte, marge=70).pack(anchor="w", fill="x", padx=12)
+
+    @staticmethod
+    def _decimal(valeur: float) -> str:
+        """0.8125 -> « 0,81 » (virgule décimale)."""
+        return f"{valeur:.2f}".replace(".", ",")
+
+    # ----- Réactions ------------------------------------------------------------------
+
+    def basculer_details(self) -> None:
+        """Ouvre ou ferme la section « Détails techniques »."""
+        self._details_ouverts = not self._details_ouverts
+        if self._details_ouverts:
+            self._details.pack(fill="x", padx=12, pady=(0, 16), after=self._bouton_details)
+        else:
+            self._details.pack_forget()
+        self._maj_bouton_details()
+
+    def _maj_bouton_details(self) -> None:
+        """Flèche ▸ (fermé) ou ▾ (ouvert) devant le titre de la section."""
+        self._bouton_details.configure(text=f"{'▾' if self._details_ouverts else '▸'}   Détails techniques")
 
     def _colorer_tableau(self) -> None:
         """Le modèle retenu est écrit dans la couleur d'accent du thème actif."""
@@ -544,27 +608,20 @@ class PageModele(ctk.CTkFrame):
         """Dessine le graphique d'évaluation choisi et son mode d'emploi."""
         meta, theme = self._meta, theme_graphique()
         if self._graphique == "matrice":
-            (_, fausses_alertes), (manques, _) = meta["matrice_confusion"]
             figure = figure_matrice_confusion(meta["matrice_confusion"], theme=theme)
-            lecture = ("Chaque case compte des employés du test. Vert : le modèle a vu juste ; rouge : il s'est "
-                       f"trompé. Il lance {fausses_alertes} fausses alertes pour {manques} départs manqués : "
-                       "c'est voulu. Les départs ont reçu plus de poids à l'entraînement, pour que le modèle "
-                       "préfère signaler un départ de trop plutôt que d'en rater un.")
-        elif self._graphique == "importances":
-            figure = figure_importances(meta["importances"], theme=theme)
-            lecture = ("On mélange au hasard une colonne à la fois et on mesure la précision perdue. Plus la "
-                       "barre est longue, plus le modèle a besoin de cette information. C'est aussi l'ordre des "
-                       "champs conseillés dans le formulaire.")
+            lecture = ("Chaque case compte des employés du test : en vert, le modèle a vu juste ; en rouge, il "
+                       "s'est trompé. Il préfère lancer une fausse alerte plutôt que de rater un départ.")
         else:
-            figure = figure_comparaison_cibles(meta["comparaison_cibles"], theme=theme)
-            lecture = ("Nous voulions d'abord prédire la satisfaction au travail. Avec les mêmes données, le "
-                       "modèle fait moins bien que le hasard (barre sous la ligne pointillée). Le départ, lui, "
-                       "est prévisible : c'est pour cela que l'application prédit le départ.")
+            figure = figure_importances(meta["importances"], theme=theme)
+            lecture = ("Plus la barre est longue, plus le modèle a besoin de cette information. C'est aussi "
+                       "l'ordre des champs conseillés dans le formulaire.")
         self._carte_graphique.zone.afficher(figure)
         self._carte_graphique.expliquer(lecture)
 
     def changer_theme(self) -> None:
-        """Redessine le graphique et recolore le tableau."""
+        """Redessine les schémas et le graphique, recolore le tableau."""
+        for schema in self._schemas:
+            schema.dessiner()
         self._colorer_tableau()
         self._afficher_graphique()
 
@@ -588,7 +645,7 @@ class PageHistorique(ctk.CTkFrame):
         haut.columnconfigure(0, weight=1)
         ctk.CTkLabel(haut, text="Historique", font=police(26, True), text_color=TEXTE).grid(row=0, column=0,
                                                                                          sticky="w")
-        self._compte = ctk.CTkLabel(haut, text="", font=police(13), text_color=TEXTE_SECONDAIRE)
+        self._compte = texte_long(haut, "", 13, conteneur=haut, marge=330)
         self._compte.grid(row=1, column=0, sticky="w")
         bouton_secondaire(haut, "Rafraîchir", self.rafraichir, width=120).grid(row=0, column=1, rowspan=2, padx=8)
         bouton_secondaire(haut, "Effacer l'historique", self._effacer, couleur_texte=ERREUR, width=170).grid(
@@ -598,7 +655,7 @@ class PageHistorique(ctk.CTkFrame):
         carte.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
         echelle = ctk.ScalingTracker.get_widget_scaling(self)
         colonnes = {"date": ("Date", 150), "risque": ("Risque", 70), "conclusion": ("Conclusion", 130),
-                    "champs": ("Champs", 64), "precision": ("Précision", 76)}
+                    "champs": ("Champs", 64), "fiabilite": ("Fiabilité", 76)}
         self._tableau = ttk.Treeview(carte, columns=list(colonnes), show="headings", selectmode="browse",
                                      style="Theme.Treeview")
         for cle, (titre, largeur) in colonnes.items():
@@ -641,7 +698,7 @@ class PageHistorique(ctk.CTkFrame):
                 etiquettes.append("impaire")
             identifiant = self._tableau.insert("", "end", tags=etiquettes, values=(
                 ligne["date"].replace("T", "  "), self._format_pourcentage(ligne["risque_depart"]),
-                ligne["conclusion"], ligne["champs_renseignes"], self._format_pourcentage(ligne["precision_attendue"])))
+                ligne["conclusion"], ligne["champs_renseignes"], fiabilite_depuis_texte(ligne["precision_attendue"])))
             self._lignes[identifiant] = ligne
         self._compte.configure(text=f"{len(lignes)} prédiction(s) enregistrée(s) · sélectionnez une ligne pour "
                                     f"revoir ses saisies, double-cliquez pour la recharger" if lignes
@@ -708,55 +765,3 @@ class PageHistorique(ctk.CTkFrame):
             messagebox.showerror("Effacer l'historique", f"Impossible de supprimer le fichier : {erreur}",
                                  parent=self)
         self.rafraichir()
-
-
-class PageAPropos(ctk.CTkScrollableFrame):
-    """Explications pour l'utilisateur, une carte par question."""
-
-    SECTIONS = [
-        ("Que fait cette application ?",
-         "Elle estime le risque qu'un employé quitte son entreprise à partir de 26 caractéristiques de sa vie "
-         "professionnelle et personnelle : âge, état civil, poste, salaire, heures supplémentaires, ancienneté, "
-         "satisfaction, équilibre travail-vie personnelle, etc."),
-        ("Comment lire le « risque de départ » ?",
-         "Pendant l'entraînement, le modèle accorde autant de poids aux départs (16 % des employés) qu'aux "
-         "maintiens, pour ne pas se contenter de répondre toujours « reste ». Le pourcentage affiché est donc "
-         "un score de risque plutôt qu'une probabilité : au-delà de 50 %, le modèle conclut à un départ "
-         "probable. Le graphique « Que veut dire le % ? » de la page Prédiction le traduit en faits : parmi les "
-         "employés du test qui ont reçu un score semblable, combien sont vraiment partis."),
-        ("Comment est calculée la « précision attendue » ?",
-         "Quand un champ est vide, on ne connaît pas sa valeur : le modèle essaie les valeurs de 40 vrais "
-         "employés de référence et fait la moyenne des risques obtenus. Le même calcul est appliqué aux employés "
-         "du jeu de test (jamais vus à l'entraînement) en ne gardant que les champs que vous avez remplis. La "
-         "précision attendue est l'exactitude équilibrée obtenue : la moyenne entre le pourcentage de départs "
-         "bien détectés et celui des maintiens bien détectés. 50 % correspond au hasard. Le jeu de test ne "
-         "contient que 59 départs : ce pourcentage varie d'environ ± 3 points selon l'échantillon."),
-        ("Pourquoi ne pas prédire directement la satisfaction ?",
-         "Nous l'avons essayé : la satisfaction au travail n'a presque aucun lien avec les autres variables de "
-         "ce jeu de données (corrélations inférieures à 0,11). Le meilleur modèle faisait moins bien que la "
-         "référence triviale (voir la page « Le modèle »). Le départ, lui, est l'expression mesurable du "
-         "contentement, et il est prévisible."),
-        ("Raccourcis clavier",
-         "Entrée : prédire · Ctrl+Suppr : vider le formulaire · Ctrl+1 à Ctrl+4 : changer de page · "
-         "Ctrl+T : passer du thème clair au thème sombre."),
-        ("Source des données",
-         "« IBM HR Analytics Employee Attrition & Performance », Kaggle (pavansubhasht), licence Open Database "
-         "License (base) et Database Contents License (contenu). 1470 employés fictifs, 35 colonnes."),
-        ("Auteurs", "Maxime Hamrioui et Alexandre Bertrand-Beaudet — INF1007, automne 2026."),
-    ]
-
-    def __init__(self, parent: ctk.CTkBaseClass) -> None:
-        super().__init__(parent, fg_color="transparent", scrollbar_button_color=BORDURE,
-                         scrollbar_button_hover_color=SURVOL)
-        entete(self, "À propos", "Ce que fait l'application, ses limites et la façon de lire ses résultats.").pack(
-            anchor="w", fill="x", padx=4, pady=(0, 14))
-        for titre, texte in self.SECTIONS:
-            carte = Carte(self)
-            carte.pack(fill="x", padx=4, pady=(0, 10))
-            ctk.CTkLabel(carte, text=titre, font=police(16, True), text_color=TEXTE).pack(anchor="w", padx=20,
-                                                                                          pady=(14, 2))
-            texte_long(carte, texte, 13, conteneur=carte, marge=50).pack(anchor="w", fill="x", padx=20,
-                                                                         pady=(0, 16))
-
-    def changer_theme(self) -> None:
-        """Rien à redessiner : CustomTkinter recolore lui-même les cartes."""

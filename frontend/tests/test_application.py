@@ -1,11 +1,13 @@
 """Tests de la logique de l'application (ce que l'interface appelle)."""
 
 import json
+import os
 
 import pytest
 
-from frontend.application import Application, Prediction, choix_en_boutons, points, pourcentage
-from backend.config import GROUPES
+from frontend.application import (SEUIL_FIABILITE_BONNE, SEUIL_FIABILITE_MOYENNE, Application, Prediction,
+                                  choix_en_boutons, fiabilite_depuis_texte, niveau_fiabilite, points, pourcentage)
+from backend.config import DOSSIER_SAUVEGARDE, GROUPES, NOM_METADONNEES
 from backend.exceptions import DonneeInvalideError, SaisieInvalideError
 from frontend.historique import COLONNES_HISTORIQUE, Historique
 
@@ -197,3 +199,66 @@ def test_historique_illisible(application, ligne):
 def test_explications(application):
     assert "heures supplémentaires" in application.explication("OverTime")
     assert application.explication("Age") == ""
+
+
+@pytest.mark.parametrize("precision, niveau", [
+    (0.5, "Faible"), (SEUIL_FIABILITE_MOYENNE - 1e-9, "Faible"), (SEUIL_FIABILITE_MOYENNE, "Moyenne"),
+    (SEUIL_FIABILITE_BONNE - 1e-9, "Moyenne"), (SEUIL_FIABILITE_BONNE, "Bonne"), (1.0, "Bonne"), (0.0, "Faible"),
+])
+def test_niveau_de_fiabilite(precision, niveau):
+    assert niveau_fiabilite(precision) == niveau
+
+
+def test_seuils_de_fiabilite_ordonnes():
+    assert 0.5 < SEUIL_FIABILITE_MOYENNE < SEUIL_FIABILITE_BONNE < 1
+
+
+@pytest.mark.parametrize("texte, attendu", [("0.693", "Moyenne"), ("0.724", "Bonne"), ("0.500", "Faible"),
+                                            ("abc", "abc"), ("", ""), ("nan", "nan"), ("inf", "inf")])
+def test_fiabilite_depuis_l_historique(texte, attendu):
+    assert fiabilite_depuis_texte(texte) == attendu
+
+
+def test_fiabilite_calibree_sur_la_vraie_courbe():
+    """Garde-fou après un réentraînement : 0 champ -> Faible, tous -> Bonne, le champ le plus utile
+    seul -> Moyenne, un champ pris au hasard -> Faible en moyenne."""
+    chemin = os.path.join(DOSSIER_SAUVEGARDE, NOM_METADONNEES)
+    with open(chemin, encoding="utf-8") as fichier:
+        courbe = json.load(fichier)["courbe_precision"]
+    utiles = [niveau_fiabilite(valeur) for valeur in courbe["ordre_importance"]]
+    assert utiles[0] == "Faible"
+    assert utiles[-1] == "Bonne"
+    assert utiles[1] == "Moyenne"
+    assert "Bonne" in utiles[:15]
+    assert niveau_fiabilite(courbe["aleatoire_moyenne"][1]) == "Faible"
+
+
+def test_fiabilite_d_une_prediction():
+    assert Prediction(0.4, {"Age": 30}, 26, 0.5).fiabilite == "Faible"
+    assert "Fiabilité bonne" in str(Prediction(0.4, {"Age": 30}, 26, 0.73))
+
+
+def test_phrase_du_resultat(application):
+    prediction = application.predire({"OverTime": "Oui", "Age": "25", "MaritalStatus": "Célibataire"},
+                                     enregistrer=False)
+    phrase = application.phrase_resultat(prediction)
+    tranche = application.situer(prediction)["tranche"]
+    assert phrase.startswith(prediction.conclusion().capitalize() + " : ")
+    if tranche["employes"] > 1 and tranche["partis"]:
+        assert f"{tranche['partis']} sur {tranche['employes']}" in phrase
+    assert phrase.endswith(".") and phrase.count(".") == 1
+
+
+@pytest.mark.parametrize("employes, partis, attendu", [
+    (0, 0, "ce score dépasse celui de 90 % des employés du test."),
+    (1, 1, "le seul employé du test au score semblable est vraiment parti."),
+    (12, 0, "parmi les 12 employés du test au score semblable, aucun n'est vraiment parti."),
+    (12, 1, "1 sur 12 est vraiment parti."),
+    (12, 7, "7 sur 12 sont vraiment partis."),
+])
+def test_phrase_du_resultat_selon_la_tranche(application, monkeypatch, employes, partis, attendu):
+    tranche = {"bas": 0.6, "haut": 0.8, "employes": employes, "partis": partis}
+    monkeypatch.setattr(application, "situer", lambda _prediction: {"depasse": 0.9, "tranche": tranche})
+    phrase = application.phrase_resultat(Prediction(0.7, {"Age": 30}, 26, 0.6))
+    assert phrase.startswith("Départ probable : ")
+    assert phrase.endswith(attendu)

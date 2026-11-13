@@ -13,15 +13,15 @@ import matplotlib
 
 from frontend.application import Application, pourcentage
 from frontend.composants import InfoBulle, etiquette_titre, texte_long
-from frontend.pages import PageAPropos, PageHistorique, PageModele, PagePrediction
+from frontend.pages import PageFonctionnement, PageHistorique, PagePrediction
 from frontend.theme import (ACCENT_DOUX, AVERTISSEMENT, AVERTISSEMENT_FOND, BARRE_LATERALE, BORDURE, CARTE,
                             FOND, SURVOL, TEXTE, TEXTE_DISCRET, TEXTE_SECONDAIRE, basculer_theme,
                             configurer_tableaux, mode_sombre, police)
 from backend.entrainement import entrainer_et_sauvegarder
 from backend.exceptions import DonneeInvalideError, ErreurProjet, FichierIntrouvableError
 
-NAVIGATION = [("prediction", "◉", "Prédiction"), ("modele", "▦", "Le modèle"),
-              ("historique", "☰", "Historique"), ("a_propos", "ⓘ", "À propos")]
+NAVIGATION = [("prediction", "◉", "Prédiction"), ("fonctionnement", "ⓘ", "Comment ça marche"),
+              ("historique", "☰", "Historique")]
 
 # Seule mise en garde exigée par l'énoncé (section 4, domaine sensible : l'emploi).
 TEXTE_AVERTISSEMENT = "Exercice pédagogique, pas une aide à la décision."
@@ -31,7 +31,7 @@ LARGEUR_COMPACTE = 1180
 
 
 class FenetrePrincipale(ctk.CTk):
-    """Fenêtre de l'application : contient l'Application et les quatre pages (composition)."""
+    """Fenêtre de l'application : contient l'Application et les trois pages (composition)."""
 
     def __init__(self) -> None:
         """Crée la fenêtre vide, centrée ; installer() y ajoute ensuite le contenu."""
@@ -73,9 +73,8 @@ class FenetrePrincipale(ctk.CTk):
         conteneur.rowconfigure(0, weight=1)
         prediction = PagePrediction(conteneur, application, lambda: self._pages["historique"].rafraichir())
         self._pages = {"prediction": prediction,
-                       "modele": PageModele(conteneur, application),
-                       "historique": PageHistorique(conteneur, application, self._recharger),
-                       "a_propos": PageAPropos(conteneur)}
+                       "fonctionnement": PageFonctionnement(conteneur, application),
+                       "historique": PageHistorique(conteneur, application, self._recharger)}
         self.afficher_page("prediction")
         self._adapter_largeur()
 

@@ -18,7 +18,7 @@ except tkinter.TclError:
 
 from frontend.application import Application
 from frontend.fenetre import FenetrePrincipale
-from frontend.theme import mode_sombre
+from frontend.theme import CARTE, couleur, mode_sombre
 
 
 def attendre(fenetre: FenetrePrincipale, millisecondes: int) -> None:
@@ -104,7 +104,7 @@ def test_prediction_d_un_vrai_employe(fenetre, page):
     page.predire()
     attendre(fenetre, 200)
     assert page._risque.cget("text").endswith("%")
-    assert "départ probable" in page._phrase.cget("text")
+    assert page._phrase.cget("text").startswith("Départ probable : ")
     assert len(page._facteurs.winfo_children()) > 1  # titre + facteurs principaux
     assert len(fenetre._pages["historique"]._lignes) == nb_avant + 1
 
@@ -139,12 +139,15 @@ def test_progression_et_conseils(fenetre, page):
     page._champs["OverTime"].definir("Oui")
     page.maj_indicateur()
     assert page._progression["Poste"].cget("text").startswith("1 / 5")
-    conseils = [enfant.cget("text") for enfant in page._conseils.winfo_children()]
+    # Les pastilles sont rangées par lignes (une ou plusieurs selon la largeur).
+    conseils = [element.cget("text") for rangee in page._conseils.winfo_children()
+                for element in rangee.winfo_children()]
+    assert conseils[0] == "Pour une meilleure fiabilité, remplissez :"
     assert "Heures supplémentaires" not in conseils  # déjà rempli : on conseille les suivants
     assert len(conseils) == 4  # la phrase et trois pastilles
 
 
-@pytest.mark.parametrize("choix", ["Précision", "Facteurs", "Que veut dire le % ?"])
+@pytest.mark.parametrize("choix", ["Facteurs", "Que veut dire le % ?"])
 def test_chaque_graphique_se_dessine(fenetre, page, choix):
     page._charger_exemple("stable")
     page.predire()
@@ -165,11 +168,16 @@ def test_changer_de_theme(fenetre, page):
 
 def test_raccourcis_clavier(fenetre, page):
     # La touche est envoyée à un champ : comme dans la vraie vie, elle remonte jusqu'à la fenêtre.
+    # Le changement de thème (test précédent) cache et réaffiche la fenêtre sous Windows : on lui
+    # rend le focus, sans quoi Tk ne livre pas les touches simulées.
+    fenetre.focus_force()
     entree = page._champs["Age"].widget._entry
-    entree.event_generate("<Control-Key-2>")
-    assert attendre_que(fenetre, lambda: fenetre._page_active == "modele")
-    entree.event_generate("<Control-Key-1>")
-    assert attendre_que(fenetre, lambda: fenetre._page_active == "prediction")
+    entree.focus_set()
+    if not attendre_que(fenetre, lambda: fenetre.focus_get() is not None, 2000):
+        pytest.skip("la fenêtre n'a pas obtenu le focus (une autre application est au premier plan)")
+    for touche, cle in (("2", "fonctionnement"), ("3", "historique"), ("1", "prediction")):
+        entree.event_generate(f"<Control-Key-{touche}>")
+        assert attendre_que(fenetre, lambda: fenetre._page_active == cle)
 
 
 def test_recharger_une_prediction_de_l_historique(fenetre, page):
@@ -185,3 +193,54 @@ def test_recharger_une_prediction_de_l_historique(fenetre, page):
     assert fenetre._page_active == "prediction"
     assert page._champs["Age"].texte() == "41"
     assert page._champs["OverTime"].texte() == "Non"
+
+
+def test_jauge_de_fiabilite(fenetre, page):
+    assert page._fiabilite.cget("text") == "Faible"
+    assert page._nb_champs.cget("text") == "0 / 26 champs remplis"
+    page._champs["OverTime"].definir("Oui")
+    page.maj_indicateur()
+    assert page._fiabilite.cget("text") == "Moyenne"
+    page._charger_exemple("hasard")  # les 26 champs remplis
+    page.maj_indicateur()
+    assert page._fiabilite.cget("text") == "Bonne"
+    assert page._nb_champs.cget("text") == "26 / 26 champs remplis"
+    assert page._conseils.winfo_children()[0].cget("text") == "Tous les champs sont remplis."
+
+
+def test_page_comment_ca_marche(fenetre):
+    fenetre.afficher_page("fonctionnement")
+    attendre(fenetre, 300)
+    page = fenetre._pages["fonctionnement"]
+    for schema in page._schemas:
+        assert schema.find_all()  # dessiné dès qu'il est affiché
+        assert int(schema.cget("height")) > 60
+    assert not page._details.winfo_manager()  # détails techniques fermés au départ
+    page.basculer_details()
+    assert page._details.winfo_manager() == "pack"
+    assert len(page._tableau.get_children()) == 3
+    page.basculer_details()
+    assert not page._details.winfo_manager()
+    for choix in page.GRAPHIQUES:
+        page._choisir_graphique(choix)
+        assert page._carte_graphique._lecture.cget("text")
+
+
+def test_chaque_page_supporte_les_deux_themes(fenetre):
+    schema = fenetre._pages["fonctionnement"]._schemas[0]
+    for _ in range(2):
+        fenetre.changer_theme()
+        for cle in ("prediction", "fonctionnement", "historique"):
+            fenetre.afficher_page(cle)
+            attendre(fenetre, 100)
+        assert schema.cget("background") == couleur(CARTE)
+        assert schema.find_all()
+
+
+def test_l_historique_affiche_la_fiabilite(fenetre, page):
+    page._champs["OverTime"].definir("Oui")
+    page.predire()
+    fenetre.afficher_page("historique")
+    historique = fenetre._pages["historique"]
+    premiere = historique._tableau.get_children()[0]
+    assert historique._tableau.set(premiere, "fiabilite") == "Moyenne"

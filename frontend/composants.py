@@ -1,5 +1,5 @@
 """Composants réutilisables de l'interface : cartes, tuiles, boutons, bulles d'aide, champs,
-zone de graphique."""
+zone de graphique, schéma en boîtes et flèches."""
 
 import tkinter as tk
 from collections.abc import Callable
@@ -9,9 +9,9 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from frontend.application import choix_en_boutons
-from frontend.theme import (ACCENT, ACCENT_DOUX, ACCENT_SURVOL, BORDURE, CARTE, ERREUR, ERREUR_FOND, POLICE,
-                            SAISIE, SUCCES, SURVOL, TEXTE, TEXTE_DISCRET, TEXTE_SECONDAIRE, TEXTE_SUR_ACCENT,
-                            couleur, police)
+from frontend.theme import (ACCENT, ACCENT_DOUX, ACCENT_SURVOL, BORDURE, CARTE, CARTE_RELIEF, ERREUR,
+                            ERREUR_FOND, POLICE, SAISIE, SUCCES, SURVOL, TEXTE, TEXTE_DISCRET, TEXTE_SECONDAIRE,
+                            TEXTE_SUR_ACCENT, couleur, police)
 from backend.exceptions import DonneeInvalideError
 from backend.variables import NON_RENSEIGNE, Variable, VariableCategorielle, VariableNumerique
 
@@ -370,3 +370,147 @@ class ZoneGraphique(ctk.CTkFrame):
                 focus.focus_set()
         except tk.TclError:
             pass
+
+
+# Une boîte du schéma : (titre écrit dans la boîte, phrase écrite dessous).
+Boite = tuple[str, str]
+
+
+class Schema(tk.Canvas):
+    """Schéma en boîtes reliées par des flèches, aux couleurs du thème actif.
+
+    etapes se lit de gauche à droite ; chaque étape contient une ou deux boîtes, empilées.
+    Chaque boîte d'une étape est reliée à chaque boîte de l'étape suivante, et la dernière
+    étape (le résultat) est mise en évidence. Si les boîtes deviennent trop étroites (fenêtre
+    étroite), les étapes passent l'une sous l'autre. Le schéma se redessine quand sa largeur
+    change ; dessiner() le redessine aussi après un changement de thème.
+    """
+
+    LARGEUR_MIN = 130  # largeur minimale d'une boîte côte à côte (pixels avant mise à l'échelle)
+    ECART = 40         # espace des flèches entre deux étapes
+    MARGE = 10         # marge intérieure des boîtes
+
+    def __init__(self, parent: tk.Misc, etapes: list[list[Boite]]) -> None:
+        super().__init__(parent, width=200, height=60, highlightthickness=0, borderwidth=0,
+                         background=couleur(CARTE))
+        self._etapes = etapes
+        self._largeur = 0
+        self._echelle = 1.0
+        self._police_titre: tuple = (POLICE, -13, "bold")
+        self._police_phrase: tuple = (POLICE, -12)
+        self.bind("<Configure>", self._redimensionne)
+
+    def _redimensionne(self, evenement: tk.Event) -> None:
+        """Redessine seulement si la largeur change (changer la hauteur relance <Configure>)."""
+        if evenement.width != self._largeur:
+            self._largeur = evenement.width
+            self.dessiner()
+
+    def dessiner(self) -> None:
+        """Efface et redessine tout le schéma à la largeur actuelle, puis ajuste sa hauteur."""
+        self.delete("all")
+        self.configure(background=couleur(CARTE))
+        largeur = self.winfo_width()
+        if largeur <= 1:  # pas encore affiché : <Configure> rappellera dessiner
+            return
+        self._echelle = ctk.ScalingTracker.get_widget_scaling(self)
+        self._police_titre = (POLICE, -round(13 * self._echelle), "bold")
+        self._police_phrase = (POLICE, -round(12 * self._echelle))
+        nb = len(self._etapes)
+        largeur_boite = (largeur - 4 - (nb - 1) * self._px(self.ECART)) / nb
+        if largeur_boite >= self._px(self.LARGEUR_MIN):
+            hauteur = self._dessiner_en_ligne(largeur_boite)
+        else:
+            hauteur = self._dessiner_en_colonne(largeur)
+        if int(self.cget("height")) != hauteur:
+            self.configure(height=hauteur)
+
+    # ----- Mesures et formes ------------------------------------------------------------
+
+    def _px(self, valeur: float) -> float:
+        """Taille en pixels réels (CustomTkinter ne met pas à l'échelle un tk.Canvas)."""
+        return valeur * self._echelle
+
+    def _hauteur_texte(self, texte: str, largeur: float, police_texte: tuple) -> float:
+        """Hauteur qu'occupe texte, renvoyé à la ligne dans largeur."""
+        element = self.create_text(0, 0, text=texte, width=largeur, font=police_texte, anchor="nw")
+        _, haut, _, bas = self.bbox(element)
+        self.delete(element)
+        return bas - haut
+
+    def _hauteur_boites(self, boites: list[Boite], largeur: float) -> float:
+        """Hauteur commune de ces boîtes : celle du plus long titre, plus les marges."""
+        return max(self._hauteur_texte(titre, largeur - 2 * self._px(self.MARGE), self._police_titre)
+                   for titre, _ in boites) + 2 * self._px(self.MARGE)
+
+    def _boite(self, x: float, y: float, largeur: float, hauteur: float, boite: Boite, resultat: bool) -> float:
+        """Dessine la boîte (coin haut gauche en x, y) et sa phrase dessous ; renvoie le bas de la phrase."""
+        # Espace insécable devant « % » : « 100 % » ne doit pas être coupé en fin de ligne.
+        titre, phrase = (texte.replace(" %", " %") for texte in boite)
+        fond, bord, encre =(ACCENT_DOUX, ACCENT, ACCENT) if resultat else (CARTE_RELIEF, BORDURE, TEXTE)
+        r = self._px(10)
+        x2, y2 = x + largeur, y + hauteur
+        # Polygone lissé dont chaque coin est doublé : un rectangle aux coins arrondis.
+        coins = [x + r, y, x2 - r, y, x2, y, x2, y + r, x2, y2 - r, x2, y2, x2 - r, y2, x + r, y2,
+                 x, y2, x, y2 - r, x, y + r, x, y]
+        self.create_polygon(coins, smooth=True, fill=couleur(fond), outline=couleur(bord), width=1)
+        self.create_text(x + largeur / 2, y + hauteur / 2, text=titre, width=largeur - 2 * self._px(self.MARGE),
+                         font=self._police_titre, fill=couleur(encre), justify="center")
+        element = self.create_text(x + largeur / 2, y2 + self._px(6), text=phrase, width=largeur,
+                                   font=self._police_phrase, fill=couleur(TEXTE_SECONDAIRE), justify="center",
+                                   anchor="n")
+        return self.bbox(element)[3]
+
+    def _fleche(self, x1: float, y1: float, x2: float, y2: float) -> None:
+        """Flèche discrète de (x1, y1) vers (x2, y2)."""
+        self.create_line(x1, y1, x2, y2, fill=couleur(TEXTE_DISCRET), width=max(1.0, self._px(1.5)),
+                         arrow=tk.LAST, arrowshape=(self._px(8), self._px(10), self._px(4)))
+
+    # ----- Dispositions -----------------------------------------------------------------
+
+    def _dessiner_en_ligne(self, largeur_boite: float) -> int:
+        """Étapes côte à côte ; une boîte seule est centrée sur les boîtes empilées. Renvoie la hauteur."""
+        derniere = len(self._etapes) - 1
+        hauteur_boite = max(self._hauteur_boites(boites, largeur_boite) for boites in self._etapes)
+        pas = 0.0  # distance verticale entre deux boîtes empilées : boîte, phrase, espace
+        for boites in self._etapes:
+            for _, phrase in boites[:-1]:
+                pas = max(pas, hauteur_boite + self._px(6) + self._hauteur_texte(phrase, largeur_boite,
+                                                                                 self._police_phrase)
+                          + self._px(18))
+        bas = 2.0
+        positions: list[list[tuple[float, float, float]]] = []  # (gauche, droite, milieu vertical)
+        for rang, boites in enumerate(self._etapes):
+            x = 2 + rang * (largeur_boite + self._px(self.ECART))
+            premier = 2 + pas * (2 - len(boites)) / 2  # une boîte seule se place à mi-hauteur
+            positions.append([])
+            for indice, boite in enumerate(boites):
+                y = premier + indice * pas
+                bas = max(bas, self._boite(x, y, largeur_boite, hauteur_boite, boite, rang == derniere))
+                positions[-1].append((x, x + largeur_boite, y + hauteur_boite / 2))
+        espace = self._px(4)
+        for depart, arrivee in zip(positions, positions[1:]):
+            for _, droite, y1 in depart:
+                for gauche, _, y2 in arrivee:
+                    self._fleche(droite + espace, y1, gauche - espace, y2)
+        return int(bas + 4)
+
+    def _dessiner_en_colonne(self, largeur: float) -> int:
+        """Étapes l'une sous l'autre (fenêtre étroite), deux boîtes d'une étape côte à côte ; renvoie la hauteur."""
+        derniere = len(self._etapes) - 1
+        ecart = self._px(14)
+        y, bas = 2.0, 2.0
+        precedente: list[float] = []  # milieux horizontaux des boîtes de l'étape précédente
+        for rang, boites in enumerate(self._etapes):
+            largeur_boite = (largeur - 4 - (len(boites) - 1) * ecart) / len(boites)
+            hauteur_boite = self._hauteur_boites(boites, largeur_boite)
+            milieux = [2 + indice * (largeur_boite + ecart) + largeur_boite / 2 for indice in range(len(boites))]
+            for x1 in precedente:
+                for x2 in milieux:
+                    self._fleche(x1, y - self._px(28), x2, y - self._px(4))
+            for milieu, boite in zip(milieux, boites):
+                bas = max(bas, self._boite(milieu - largeur_boite / 2, y, largeur_boite, hauteur_boite, boite,
+                                           rang == derniere))
+            precedente = milieux
+            y = bas + self._px(32)
+        return int(bas + 4)

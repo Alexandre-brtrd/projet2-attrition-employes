@@ -4,25 +4,15 @@ import pytest
 from matplotlib.colors import to_hex
 from matplotlib.figure import Figure
 
-from frontend.graphiques import figure_effets, figure_precision_champs, figure_risque_reel, figure_vide
+from frontend.graphiques import figure_effets, figure_risque_reel, figure_vide
 from backend.style import couleurs
 
-COURBE = {"nb_champs": [0, 1, 2], "aleatoire_bas": [0.5, 0.5, 0.6], "aleatoire_haut": [0.5, 0.7, 0.7],
-          "aleatoire_moyenne": [0.5, 0.6, 0.65], "ordre_importance": [0.5, 0.69, 0.7]}
 TRANCHES = [{"bas": 0.0, "haut": 0.5, "employes": 10, "partis": 1},
             {"bas": 0.5, "haut": 1.0, "employes": 4, "partis": 3}]
 
 
 def _textes(figure: Figure) -> str:
     return " ".join(texte.get_text() for texte in figure.axes[0].texts)
-
-
-def test_courbe_de_precision_avec_la_saisie():
-    figure = figure_precision_champs(COURBE, 1, 0.69, premier_champ="Heures supplémentaires")
-    assert figure.axes[0].get_title(loc="left").startswith("Plus vous renseignez")
-    assert to_hex(figure.get_facecolor()) == couleurs("sombre")["surface"]
-    assert "Vous : 1 champ(s) → 69 %" in _textes(figure)
-    assert "« Heures supplémentaires » seul : 69 %" in _textes(figure)
 
 
 def test_effets_et_message_sans_donnees():
