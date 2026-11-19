@@ -8,7 +8,7 @@ quitte son entreprise** à partir de 26 caractéristiques de sa vie professionne
 personnelle…).
 
 Le formulaire accepte des **saisies partielles** : chaque champ vide fait baisser la **précision
-attendue**, affichée en direct avec un graphique « précision selon le nombre de champs remplis ».
+attendue**, affichée en direct comme une jauge de **fiabilité** (Faible, Moyenne ou Bonne).
 
 ## Installation et lancement
 
@@ -59,7 +59,7 @@ frontend/
 ├── historique.py        Historique : ajout et lecture du CSV des prédictions
 ├── fenetre.py           FenetrePrincipale : navigation, thème clair/sombre, mode compact, raccourcis
 ├── pages.py             PagePrediction, PageFonctionnement, PageHistorique
-├── composants.py        Carte, Tuile, Champ, InfoBulle, ZoneGraphique, Schema, boutons
+├── composants.py        Carte, Champ, CarteGraphique, InfoBulle, Schema, boutons
 ├── theme.py             palette (paires clair/sombre) et polices
 ├── graphiques.py        graphiques de l'interface (facteurs, sens du %)
 └── tests/               tests de la logique + test_interface.py (la vraie fenêtre, pilotée)
@@ -69,7 +69,8 @@ main.py                  point d'entrée (argparse)
 
 `application.py` et `historique.py` ne dépendent d'aucune fenêtre : ils sont testés. Les fichiers
 d'affichage (`fenetre.py`, `pages.py`, `composants.py`) n'effectuent aucun calcul : ils appellent
-`Application`. À la racine se trouvent aussi les fichiers exigés par l'énoncé (`README.md`,
+`Application`. Chaque page décrit ses graphiques par des méthodes qui renvoient (figure, texte
+« Comment lire ») ; `CarteGraphique` s'occupe du sélecteur, de l'affichage et du redessin. À la racine se trouvent aussi les fichiers exigés par l'énoncé (`README.md`,
 `requirements.txt`, avec `DECISIONS.md`, `JOURNAL_IA.md` et l'énoncé dans `docs/`), la configuration des tests (`pyproject.toml`)
 et la CI (`.github/workflows/`, emplacement imposé par GitHub).
 

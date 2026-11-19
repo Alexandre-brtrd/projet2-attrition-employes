@@ -151,9 +151,9 @@ def test_progression_et_conseils(fenetre, page):
 def test_chaque_graphique_se_dessine(fenetre, page, choix):
     page._charger_exemple("stable")
     page.predire()
-    page._choisir_graphique(choix)
+    page._carte_graphique.choisir(choix)
     attendre(fenetre, 100)
-    assert page._carte_graphique.zone._canevas is not None
+    assert page._carte_graphique._canevas is not None
     assert page._carte_graphique._lecture.cget("text")
 
 
@@ -189,6 +189,8 @@ def test_recharger_une_prediction_de_l_historique(fenetre, page):
     historique = fenetre._pages["historique"]
     historique._tableau.selection_set(historique._tableau.get_children()[0])  # la plus récente
     attendre(fenetre, 100)
+    detail = historique._detail.get("1.0", "end")  # saisies de la ligne, avec les libellés français
+    assert "Âge (ans) : 41" in detail and "Heures supplémentaires : Non" in detail
     historique._recharger_selection()
     assert fenetre._page_active == "prediction"
     assert page._champs["Age"].texte() == "41"
@@ -221,8 +223,9 @@ def test_page_comment_ca_marche(fenetre):
     assert len(page._tableau.get_children()) == 2  # référence + régression logistique
     page.basculer_details()
     assert not page._details.winfo_manager()
-    for choix in page.GRAPHIQUES:
-        page._choisir_graphique(choix)
+    for choix in ("Bonnes et mauvaises réponses", "Variables utiles"):
+        page._carte_graphique.choisir(choix)
+        assert page._carte_graphique._canevas is not None
         assert page._carte_graphique._lecture.cget("text")
 
 

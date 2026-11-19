@@ -1,5 +1,5 @@
-"""Composants réutilisables de l'interface : cartes, tuiles, boutons, bulles d'aide, champs,
-zone de graphique, schéma en boîtes et flèches."""
+"""Composants réutilisables de l'interface : carte, boutons, bulle d'aide, champ du formulaire,
+carte de graphiques et schéma en boîtes et flèches."""
 
 import tkinter as tk
 from collections.abc import Callable
@@ -32,21 +32,8 @@ def est_dans(widget: tk.Misc | None, conteneur: tk.Misc) -> bool:
 class Carte(ctk.CTkFrame):
     """Cadre arrondi, posé sur le fond de la fenêtre."""
 
-    def __init__(self, parent: ctk.CTkBaseClass, **options) -> None:
-        """options remplace au besoin le style par défaut (ex. border_color)."""
-        style = {"fg_color": CARTE, "corner_radius": 14, "border_width": 1, "border_color": BORDURE}
-        super().__init__(parent, **{**style, **options})
-
-
-class Tuile(Carte):
-    """Indicateur clé : petit titre, grande valeur, détail."""
-
-    def __init__(self, parent: ctk.CTkBaseClass, titre: str, valeur: str, detail: str,
-                 couleur_valeur=TEXTE) -> None:
-        super().__init__(parent)
-        etiquette_titre(self, titre).pack(anchor="w", padx=18, pady=(16, 0))
-        ctk.CTkLabel(self, text=valeur, font=police(30, True), text_color=couleur_valeur).pack(anchor="w", padx=18)
-        texte_long(self, detail, 12, conteneur=self, marge=40).pack(anchor="w", fill="x", padx=18, pady=(0, 16))
+    def __init__(self, parent: ctk.CTkBaseClass) -> None:
+        super().__init__(parent, fg_color=CARTE, corner_radius=14, border_width=1, border_color=BORDURE)
 
 
 def etiquette_titre(parent: ctk.CTkBaseClass, texte: str) -> ctk.CTkLabel:
@@ -57,7 +44,7 @@ def etiquette_titre(parent: ctk.CTkBaseClass, texte: str) -> ctk.CTkLabel:
 def texte_long(parent: ctk.CTkBaseClass, texte: str = "", taille: int = 13,
                couleur_texte=TEXTE_SECONDAIRE, conteneur: ctk.CTkBaseClass | None = None,
                marge: int = 40) -> ctk.CTkLabel:
-    """Étiquette multiligne dont le retour à la ligne suit la largeur de conteneur."""
+    """Étiquette multiligne dont le retour à la ligne suit la largeur de conteneur (moins marge)."""
     etiquette = ctk.CTkLabel(parent, text=texte, font=police(taille), text_color=couleur_texte,
                              justify="left", anchor="w", wraplength=400)
 
@@ -92,13 +79,14 @@ def pastille(parent: ctk.CTkBaseClass, texte: str, commande: Callable[[], None])
 
 
 def selecteur(parent: ctk.CTkBaseClass, choix: list[str], commande: Callable[[str], None]) -> ctk.CTkSegmentedButton:
-    """Boutons segmentés (un seul choix actif), utilisés pour choisir un graphique."""
-    bouton = ctk.CTkSegmentedButton(parent, values=choix, command=commande, font=police(12), height=32,
-                                    corner_radius=8, fg_color=SAISIE, selected_color=ACCENT,
-                                    selected_hover_color=ACCENT_SURVOL, unselected_color=SAISIE,
-                                    unselected_hover_color=SURVOL, text_color=TEXTE)
-    bouton.set(choix[0])
-    return bouton
+    """Rangée de boutons dont un seul est actif (choix d'un graphique ou d'une valeur courte).
+
+    Aucun bouton n'est actif au départ ; commande reçoit le texte du bouton cliqué.
+    """
+    return ctk.CTkSegmentedButton(parent, values=choix, command=commande, font=police(12), height=32,
+                                  corner_radius=8, fg_color=SAISIE, selected_color=ACCENT,
+                                  selected_hover_color=ACCENT_SURVOL, unselected_color=SAISIE,
+                                  unselected_hover_color=SURVOL, text_color=TEXTE)
 
 
 class InfoBulle:
@@ -178,16 +166,12 @@ class Champ:
         ctk.CTkLabel(textes, text=self._aide(), font=police(11), text_color=TEXTE_DISCRET, height=16,
                      anchor="w").pack(anchor="w")
 
-        self._boutons = choix_en_boutons(variable)
+        # Trois sortes de saisie : rangée de boutons, liste déroulante ou zone de texte.
+        self._boutons = choix_en_boutons(variable)  # {libellé court : texte complet}, ou None
         self._liste = self._boutons is None and isinstance(variable, VariableCategorielle)
         if self._boutons is not None:
             self._widget = ctk.CTkFrame(parent, fg_color="transparent")
-            self._segments = ctk.CTkSegmentedButton(
-                self._widget, values=list(self._boutons), command=lambda _: self._modifie(), height=32,
-                corner_radius=8, font=police(12), fg_color=SAISIE, selected_color=ACCENT,
-                selected_hover_color=ACCENT_SURVOL, unselected_color=SAISIE, unselected_hover_color=SURVOL,
-                text_color=TEXTE)
-            self._segments.set("")
+            self._segments = selecteur(self._widget, list(self._boutons), lambda _: self._modifie())
             self._segments.pack(side="left")
             self._vider = ctk.CTkButton(self._widget, text="✕", width=26, height=26, corner_radius=13,
                                         fg_color="transparent", hover_color=SURVOL, text_color=TEXTE_DISCRET,
@@ -228,11 +212,6 @@ class Champ:
             self._message.grid_remove()
 
     @property
-    def variable(self) -> Variable:
-        """Variable saisie dans ce champ."""
-        return self._variable
-
-    @property
     def widget(self) -> ctk.CTkBaseClass:
         """Widget de saisie (pour placer le curseur ou faire défiler jusqu'à lui)."""
         return self._widget
@@ -267,8 +246,8 @@ class Champ:
     def _quitte(self) -> None:
         """Vérifie la saisie si le curseur n'est plus dans ce champ.
 
-        Un graphique redessiné peut voler le focus un instant puis le rendre : dans ce cas,
-        l'utilisateur est toujours en train de taper et on ne l'interrompt pas.
+        Le focus peut quitter le champ un instant puis y revenir (graphique redessiné après
+        « Entrée », fenêtre mise en arrière-plan) : dans ce cas, on n'interrompt pas l'utilisateur.
         """
         try:
             focus = self._widget.focus_lastfor()  # dernier widget à avoir le focus dans cette fenêtre
@@ -333,19 +312,63 @@ class Champ:
         (self._segments if self._boutons is not None else self._widget).focus_set()
 
 
-class ZoneGraphique(ctk.CTkFrame):
-    """Cadre qui affiche une figure Matplotlib et peut la remplacer par une autre."""
+class CarteGraphique(Carte):
+    """Carte qui contient un sélecteur de graphiques, le graphique choisi et son mode d'emploi.
 
-    def __init__(self, parent: ctk.CTkBaseClass) -> None:
-        super().__init__(parent, fg_color=CARTE, corner_radius=0)
+    graphiques associe le nom affiché dans le sélecteur à une fonction sans paramètre qui renvoie
+    (figure Matplotlib, texte « Comment lire ce graphique »). La page appelle redessiner() quand
+    les données ou le thème changent. hauteur fixe la hauteur du graphique (page qui défile) ;
+    sans elle, le graphique remplit la place disponible. En mode compact, le mode d'emploi passe
+    dans une bulle d'aide pour laisser la place au graphique.
+    """
+
+    def __init__(self, parent: ctk.CTkBaseClass, graphiques: dict[str, Callable[[], tuple[Figure, str]]],
+                 hauteur: int | None = None) -> None:
+        super().__init__(parent)
+        self._graphiques = graphiques
+        self._choix = next(iter(graphiques))
         self._canevas: FigureCanvasTkAgg | None = None
 
-    def afficher(self, figure: Figure) -> None:
+        haut = ctk.CTkFrame(self, fg_color="transparent")
+        haut.pack(fill="x", padx=16, pady=(14, 4))
+        self._selecteur = selecteur(haut, list(graphiques), self.choisir)
+        self._selecteur.set(self._choix)
+        self._selecteur.pack(side="left")
+        self._aide_compacte = ctk.CTkLabel(haut, text="ⓘ Comment lire", font=police(12), text_color=ACCENT)
+        self._bulle = InfoBulle(self._aide_compacte, "")
+
+        self._zone = ctk.CTkFrame(self, fg_color=CARTE, corner_radius=0)
+        if hauteur is not None:
+            self._zone.configure(height=hauteur)
+            self._zone.pack_propagate(False)  # garde la hauteur fixe même si la figure est plus petite
+        self._zone.pack(fill="both", expand=True, padx=10)
+
+        self._cadre_lecture = ctk.CTkFrame(self, fg_color=CARTE_RELIEF, corner_radius=10)
+        self._cadre_lecture.pack(fill="x", padx=12, pady=(4, 12))
+        etiquette_titre(self._cadre_lecture, "Comment lire ce graphique").pack(anchor="w", padx=12, pady=(8, 0))
+        self._lecture = texte_long(self._cadre_lecture, "", 12, conteneur=self._cadre_lecture, marge=30)
+        self._lecture.pack(anchor="w", fill="x", padx=12, pady=(0, 10))
+        self.redessiner()
+
+    def choisir(self, choix: str) -> None:
+        """Affiche le graphique nommé choix (appelé par le sélecteur)."""
+        self._choix = choix
+        self._selecteur.set(choix)
+        self.redessiner()
+
+    def redessiner(self) -> None:
+        """Redessine le graphique choisi et son mode d'emploi (nouvelles données ou nouveau thème)."""
+        figure, lecture = self._graphiques[self._choix]()
+        self._afficher(figure)
+        self._lecture.configure(text=lecture)
+        self._bulle.texte = lecture
+
+    def _afficher(self, figure: Figure) -> None:
         """Remplace le graphique affiché par figure, sans voler le curseur de l'utilisateur.
 
         FigureCanvasTkAgg demande le focus pour son canevas à sa création ; Tk le lui donne
         seulement quand le canevas apparaît à l'écran, donc après coup. Quand le canevas reçoit
-        ce focus, on le rend au widget qui l'avait (ex. le champ en cours de saisie).
+        ce focus, on le rend au widget qui l'avait (ex. le champ où l'on vient d'appuyer sur Entrée).
         """
         try:
             focus = self.focus_lastfor()  # fonctionne même si la fenêtre n'est pas au premier plan
@@ -353,13 +376,13 @@ class ZoneGraphique(ctk.CTkFrame):
             focus = None
         if self._canevas is not None:
             self._canevas.get_tk_widget().destroy()
-        self._canevas = FigureCanvasTkAgg(figure, master=self)
-        widget = self._canevas.get_tk_widget()
-        widget.configure(background=couleur(CARTE), highlightthickness=0, takefocus=0)
+        self._canevas = FigureCanvasTkAgg(figure, master=self._zone)
+        canevas = self._canevas.get_tk_widget()
+        canevas.configure(background=couleur(CARTE), highlightthickness=0, takefocus=0)
         self._canevas.draw()
-        widget.pack(fill="both", expand=True)
-        if focus is not None and not est_dans(focus, self):
-            widget.bind("<FocusIn>", lambda _: self._rendre_focus(widget, focus))
+        canevas.pack(fill="both", expand=True)
+        if focus is not None and not est_dans(focus, self._zone):
+            canevas.bind("<FocusIn>", lambda _: self._rendre_focus(canevas, focus))
 
     @staticmethod
     def _rendre_focus(canevas: tk.Misc, focus: tk.Misc) -> None:
@@ -371,6 +394,15 @@ class ZoneGraphique(ctk.CTkFrame):
         except tk.TclError:
             pass
 
+    def adapter(self, compact: bool) -> None:
+        """Mode d'emploi sous le graphique (fenêtre large) ou dans une bulle (fenêtre étroite)."""
+        if compact:
+            self._cadre_lecture.pack_forget()
+            self._aide_compacte.pack(side="left", padx=(12, 0))
+        else:
+            self._aide_compacte.pack_forget()
+            self._cadre_lecture.pack(fill="x", padx=12, pady=(4, 12), after=self._zone)
+
 
 # Une boîte du schéma : (titre écrit dans la boîte, phrase écrite dessous).
 Boite = tuple[str, str]
@@ -381,20 +413,20 @@ class Schema(tk.Canvas):
 
     etapes se lit de gauche à droite ; chaque étape contient une ou deux boîtes, empilées.
     Chaque boîte d'une étape est reliée à chaque boîte de l'étape suivante, et la dernière
-    étape (le résultat) est mise en évidence. Si les boîtes deviennent trop étroites (fenêtre
-    étroite), les étapes passent l'une sous l'autre. Le schéma se redessine quand sa largeur
-    change ; dessiner() le redessine aussi après un changement de thème.
+    étape (le résultat) est mise en évidence. Le schéma se redessine quand sa largeur change
+    (le texte des boîtes passe à la ligne) ; dessiner() le redessine aussi après un changement
+    de thème. Même à la taille minimale de la fenêtre, chaque boîte garde plus de 150 pixels.
     """
 
-    LARGEUR_MIN = 130  # largeur minimale d'une boîte côte à côte (pixels avant mise à l'échelle)
-    ECART = 40         # espace des flèches entre deux étapes
-    MARGE = 10         # marge intérieure des boîtes
+    ECART = 40  # espace des flèches entre deux étapes (pixels avant mise à l'échelle)
+    MARGE = 10  # marge intérieure des boîtes
 
     def __init__(self, parent: tk.Misc, etapes: list[list[Boite]]) -> None:
         super().__init__(parent, width=200, height=60, highlightthickness=0, borderwidth=0,
                          background=couleur(CARTE))
         self._etapes = etapes
         self._largeur = 0
+        # Mise à l'échelle de l'écran et polices : fixées à chaque dessin (voir dessiner).
         self._echelle = 1.0
         self._police_titre: tuple = (POLICE, -13, "bold")
         self._police_phrase: tuple = (POLICE, -12)
@@ -418,10 +450,7 @@ class Schema(tk.Canvas):
         self._police_phrase = (POLICE, -round(12 * self._echelle))
         nb = len(self._etapes)
         largeur_boite = (largeur - 4 - (nb - 1) * self._px(self.ECART)) / nb
-        if largeur_boite >= self._px(self.LARGEUR_MIN):
-            hauteur = self._dessiner_en_ligne(largeur_boite)
-        else:
-            hauteur = self._dessiner_en_colonne(largeur)
+        hauteur = self._dessiner_etapes(largeur_boite)
         if int(self.cget("height")) != hauteur:
             self.configure(height=hauteur)
 
@@ -447,7 +476,7 @@ class Schema(tk.Canvas):
         """Dessine la boîte (coin haut gauche en x, y) et sa phrase dessous ; renvoie le bas de la phrase."""
         # Espace insécable devant « % » : « 100 % » ne doit pas être coupé en fin de ligne.
         titre, phrase = (texte.replace(" %", " %") for texte in boite)
-        fond, bord, encre =(ACCENT_DOUX, ACCENT, ACCENT) if resultat else (CARTE_RELIEF, BORDURE, TEXTE)
+        fond, bord, encre = (ACCENT_DOUX, ACCENT, ACCENT) if resultat else (CARTE_RELIEF, BORDURE, TEXTE)
         r = self._px(10)
         x2, y2 = x + largeur, y + hauteur
         # Polygone lissé dont chaque coin est doublé : un rectangle aux coins arrondis.
@@ -466,9 +495,9 @@ class Schema(tk.Canvas):
         self.create_line(x1, y1, x2, y2, fill=couleur(TEXTE_DISCRET), width=max(1.0, self._px(1.5)),
                          arrow=tk.LAST, arrowshape=(self._px(8), self._px(10), self._px(4)))
 
-    # ----- Dispositions -----------------------------------------------------------------
+    # ----- Disposition -------------------------------------------------------------------
 
-    def _dessiner_en_ligne(self, largeur_boite: float) -> int:
+    def _dessiner_etapes(self, largeur_boite: float) -> int:
         """Étapes côte à côte ; une boîte seule est centrée sur les boîtes empilées. Renvoie la hauteur."""
         derniere = len(self._etapes) - 1
         hauteur_boite = max(self._hauteur_boites(boites, largeur_boite) for boites in self._etapes)
@@ -493,24 +522,4 @@ class Schema(tk.Canvas):
             for _, droite, y1 in depart:
                 for gauche, _, y2 in arrivee:
                     self._fleche(droite + espace, y1, gauche - espace, y2)
-        return int(bas + 4)
-
-    def _dessiner_en_colonne(self, largeur: float) -> int:
-        """Étapes l'une sous l'autre (fenêtre étroite), deux boîtes d'une étape côte à côte ; renvoie la hauteur."""
-        derniere = len(self._etapes) - 1
-        ecart = self._px(14)
-        y, bas = 2.0, 2.0
-        precedente: list[float] = []  # milieux horizontaux des boîtes de l'étape précédente
-        for rang, boites in enumerate(self._etapes):
-            largeur_boite = (largeur - 4 - (len(boites) - 1) * ecart) / len(boites)
-            hauteur_boite = self._hauteur_boites(boites, largeur_boite)
-            milieux = [2 + indice * (largeur_boite + ecart) + largeur_boite / 2 for indice in range(len(boites))]
-            for x1 in precedente:
-                for x2 in milieux:
-                    self._fleche(x1, y - self._px(28), x2, y - self._px(4))
-            for milieu, boite in zip(milieux, boites):
-                bas = max(bas, self._boite(milieu - largeur_boite / 2, y, largeur_boite, hauteur_boite, boite,
-                                           rang == derniere))
-            precedente = milieux
-            y = bas + self._px(32)
         return int(bas + 4)

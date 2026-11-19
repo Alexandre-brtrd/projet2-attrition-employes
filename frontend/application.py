@@ -91,6 +91,11 @@ def pourcentage(valeur: float) -> str:
     return f"{valeur * 100:.0f} %"
 
 
+def decimal(valeur: float) -> str:
+    """Écrit 0.8125 sous la forme « 0,81 » (virgule décimale)."""
+    return f"{valeur:.2f}".replace(".", ",")
+
+
 class Prediction:
     """Résultat d'une prédiction, prêt à être affiché ou enregistré."""
 
@@ -140,11 +145,6 @@ class Prediction:
     def nb_champs(self) -> int:
         """Nombre de champs renseignés."""
         return len(self._valeurs_connues)
-
-    @property
-    def nb_variables(self) -> int:
-        """Nombre total de champs du formulaire."""
-        return self._nb_variables
 
     @property
     def date(self) -> datetime:
@@ -232,11 +232,6 @@ class Application:
             raise DonneeInvalideError(f"Fichiers du modèle incomplets : clé {erreur} absente.") from None
         return cls(modele, variables, jeu_test, y_test, reference, metadonnees,
                    Historique(chemin_historique))
-
-    @property
-    def modele(self) -> Modele:
-        """Modèle entraîné utilisé pour les prédictions."""
-        return self._modele
 
     @property
     def variables(self) -> list[Variable]:

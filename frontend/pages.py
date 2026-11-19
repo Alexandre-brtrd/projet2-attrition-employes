@@ -5,16 +5,16 @@ et affichent ce qu'elle renvoie. Chaque graphique est accompagné d'un court tex
 « Comment lire ce graphique » écrit pour un non-informaticien.
 """
 
-import json
 from collections.abc import Callable
 from tkinter import messagebox, ttk
 
 import customtkinter as ctk
+from matplotlib.figure import Figure
 
 from frontend.application import (NIVEAUX_FIABILITE, SEUIL_FIABILITE_BONNE, SEUIL_FIABILITE_MOYENNE, Application,
-                                  Prediction, fiabilite_depuis_texte, niveau_fiabilite, points, pourcentage)
-from frontend.composants import (Boite, Carte, Champ, InfoBulle, Schema, Tuile, ZoneGraphique, bouton_principal,
-                                 bouton_secondaire, etiquette_titre, pastille, selecteur, texte_long)
+                                  Prediction, decimal, fiabilite_depuis_texte, niveau_fiabilite, points, pourcentage)
+from frontend.composants import (Boite, Carte, CarteGraphique, Champ, InfoBulle, Schema, bouton_principal,
+                                 bouton_secondaire, etiquette_titre, pastille, texte_long)
 from frontend.graphiques import figure_effets, figure_risque_reel, figure_vide
 from frontend.theme import (ACCENT, AVERTISSEMENT, BORDURE, CARTE, CARTE_RELIEF, ERREUR, FIABILITE, NIVEAUX,
                             SUCCES, SURVOL, TEXTE, TEXTE_DISCRET, TEXTE_SECONDAIRE, couleur, police, theme_graphique)
@@ -28,55 +28,8 @@ ETAPES = ("1.  Décrivez l'employé : un seul champ suffit.\n"
           "3.  Lisez le risque et ce qui pèse le plus.")
 
 
-def entete(page: ctk.CTkFrame, titre: str, sous_titre: str) -> ctk.CTkFrame:
-    """Titre de page et phrase d'introduction."""
-    cadre = ctk.CTkFrame(page, fg_color="transparent")
-    ctk.CTkLabel(cadre, text=titre, font=police(26, True), text_color=TEXTE).pack(anchor="w")
-    texte_long(cadre, sous_titre, 13, conteneur=page, marge=20).pack(anchor="w", fill="x")
-    return cadre
-
-
-class CarteGraphique(Carte):
-    """Carte qui contient un sélecteur de graphiques, le graphique choisi et son mode d'emploi.
-
-    En mode compact, le mode d'emploi passe dans une bulle d'aide pour laisser la place au graphique.
-    """
-
-    def __init__(self, parent: ctk.CTkBaseClass, choix: list[str], commande: Callable[[str], None]) -> None:
-        super().__init__(parent)
-        haut = ctk.CTkFrame(self, fg_color="transparent")
-        haut.pack(fill="x", padx=16, pady=(14, 4))
-        self._selecteur = selecteur(haut, choix, commande)
-        self._selecteur.pack(side="left")
-        self._aide_compacte = ctk.CTkLabel(haut, text="ⓘ Comment lire", font=police(12), text_color=ACCENT)
-        self._bulle = InfoBulle(self._aide_compacte, "")
-        self.zone = ZoneGraphique(self)
-        self.zone.pack(fill="both", expand=True, padx=10)
-        self._cadre_lecture = ctk.CTkFrame(self, fg_color=CARTE_RELIEF, corner_radius=10)
-        self._cadre_lecture.pack(fill="x", padx=12, pady=(4, 12))
-        etiquette_titre(self._cadre_lecture, "Comment lire ce graphique").pack(anchor="w", padx=12, pady=(8, 0))
-        self._lecture = texte_long(self._cadre_lecture, "", 12, conteneur=self._cadre_lecture, marge=30)
-        self._lecture.pack(anchor="w", fill="x", padx=12, pady=(0, 10))
-
-    def expliquer(self, texte: str) -> None:
-        """Remplace le texte « Comment lire ce graphique »."""
-        self._lecture.configure(text=texte)
-        self._bulle.texte = texte
-
-    def adapter(self, compact: bool) -> None:
-        """Mode d'emploi sous le graphique (fenêtre large) ou dans une bulle (fenêtre étroite)."""
-        if compact:
-            self._cadre_lecture.pack_forget()
-            self._aide_compacte.pack(side="left", padx=(12, 0))
-        else:
-            self._aide_compacte.pack_forget()
-            self._cadre_lecture.pack(fill="x", padx=12, pady=(4, 12), after=self.zone)
-
-
 class PagePrediction(ctk.CTkFrame):
     """Formulaire à gauche ; risque, fiabilité, explications et graphiques à droite."""
-
-    GRAPHIQUES = {"Facteurs": "effets", "Que veut dire le % ?": "sens"}
 
     def __init__(self, parent: ctk.CTkBaseClass, application: Application,
                  apres_enregistrement: Callable[[], None]) -> None:
@@ -87,10 +40,9 @@ class PagePrediction(ctk.CTkFrame):
         self._champs: dict[str, Champ] = {}
         self._progression: dict[str, ctk.CTkLabel] = {}
         self._prediction: Prediction | None = None
-        self._saisies_predites: dict[str, str] = {}
+        self._saisies_predites: dict[str, str] = {}  # formulaire au moment de la dernière prédiction
         self._minuterie: str | None = None
-        self._graphique = next(iter(self.GRAPHIQUES.values()))
-        self._champs_conseil: list[str] = []
+        self._champs_remplis: list[str] = []  # pour redisposer les pastilles quand la largeur change
         self._largeur_conseils = 0
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=11, uniform="colonnes")
@@ -98,7 +50,6 @@ class PagePrediction(ctk.CTkFrame):
         self._construire_formulaire()
         self._construire_resultats()
         self.maj_indicateur()
-        self._afficher_graphique()
 
     def adapter(self, compact: bool) -> None:
         """Fenêtre étroite : chaque saisie passe sous son libellé et le mode d'emploi des
@@ -134,6 +85,7 @@ class PagePrediction(ctk.CTkFrame):
         for texte, genre, aide in (("À risque", "risque", "Un employé du test qui est réellement parti"),
                                    ("Stable", "stable", "Un employé du test qui est réellement resté"),
                                    ("Au hasard", "hasard", "N'importe quel employé du test")):
+            # g=genre fige la valeur de genre pour ce bouton (sinon les trois lambdas verraient « hasard »).
             bouton = bouton_secondaire(exemples, texte, lambda g=genre: self._charger_exemple(g), width=86,
                                        height=30, font=police(12))
             bouton.pack(side="left", padx=3)
@@ -228,9 +180,39 @@ class PagePrediction(ctk.CTkFrame):
                                           "« Prédire » pour la mettre à jour.", 12, AVERTISSEMENT, conteneur=carte)
         self._facteurs = ctk.CTkFrame(textes, fg_color="transparent")
 
-        self._carte_graphique = CarteGraphique(colonne, list(self.GRAPHIQUES), self._choisir_graphique)
+        self._carte_graphique = CarteGraphique(colonne, {"Facteurs": self._figure_effets,
+                                                         "Que veut dire le % ?": self._figure_sens})
         self._carte_graphique.grid(row=1, column=0, sticky="nsew")
         colonne.rowconfigure(1, weight=1, minsize=320)
+
+    # ----- Graphiques -----------------------------------------------------------------
+
+    def _figure_effets(self) -> tuple[Figure, str]:
+        """« Facteurs » : de combien chaque information saisie fait monter ou baisser le risque."""
+        lecture = ("Rouge : l'information fait monter le risque ; vert : elle le fait baisser. "
+                   "La longueur de la barre montre de combien, en points de pourcentage.")
+        if self._prediction is None:
+            return figure_vide("Cliquez sur « Prédire » pour voir ce qui influence le résultat.",
+                               theme_graphique()), lecture
+        valeurs = {nom: self._application.variable(nom).formater(valeur)
+                   for nom, valeur in self._prediction.valeurs_connues.items()}
+        return figure_effets(self._prediction.effets, valeurs, theme=theme_graphique()), lecture
+
+    def _figure_sens(self) -> tuple[Figure, str]:
+        """« Que veut dire le % ? » : part d'employés du test vraiment partis, par tranche de score."""
+        lecture = ("Le % affiché est un score, pas une probabilité exacte. Chaque barre montre combien "
+                   "d'employés du test au score semblable sont vraiment partis.")
+        if self._prediction is None:
+            connus, probabilite = self._application.champs_renseignes(self._saisies()), None
+        else:
+            connus, probabilite = self._prediction.valeurs_connues, self._prediction.probabilite
+        figure = figure_risque_reel(self._application.tranches_de_risque(connus), probabilite,
+                                    theme=theme_graphique())
+        return figure, lecture
+
+    def changer_theme(self) -> None:
+        """Redessine le graphique aux couleurs du nouveau thème."""
+        self._carte_graphique.redessiner()
 
     # ----- Réactions aux saisies ------------------------------------------------------
 
@@ -270,15 +252,15 @@ class PagePrediction(ctk.CTkFrame):
         """Redispose les pastilles quand la largeur change (pas quand seule la hauteur change)."""
         if evenement.width != self._largeur_conseils:
             self._largeur_conseils = evenement.width
-            self._afficher_conseils(self._champs_conseil)
+            self._afficher_conseils(self._champs_remplis)
 
     def _afficher_conseils(self, champs: list[str]) -> None:
         """Pastilles cliquables : les champs vides les plus utiles à remplir ensuite.
 
-        Elles passent à la ligne suivante quand la largeur ne suffit pas (largeurs estimées
-        avec la police, en pixels avant mise à l'échelle).
+        La phrase et les pastilles sont posées l'une après l'autre dans une rangée ; quand la
+        largeur ne suffit plus (largeurs estimées avec la police), on commence une nouvelle rangée.
         """
-        self._champs_conseil = list(champs)
+        self._champs_remplis = list(champs)
         for enfant in self._conseils.winfo_children():
             enfant.destroy()
         conseilles = self._application.champs_conseilles(champs)
@@ -286,56 +268,23 @@ class PagePrediction(ctk.CTkFrame):
             ctk.CTkLabel(self._conseils, text="Tous les champs sont remplis.", font=police(12),
                          text_color=SUCCES).pack(anchor="w")
             return
-        reel = self._conseils.winfo_width()
-        disponible = reel / ctk.ScalingTracker.get_widget_scaling(self) if reel > 1 else float("inf")
+        largeur = self._conseils.winfo_width()  # 1 tant que le cadre n'est pas affiché
+        disponible = largeur / ctk.ScalingTracker.get_widget_scaling(self) if largeur > 1 else float("inf")
         phrase = "Pour une meilleure fiabilité, remplissez :"
-        elements = [(police(12).measure(phrase) + 6,
-                     lambda rangee: ctk.CTkLabel(rangee, text=phrase, font=police(12),
-                                                 text_color=TEXTE_SECONDAIRE).pack(side="left", padx=(0, 6)))]
+        rangee = ctk.CTkFrame(self._conseils, fg_color="transparent")
+        rangee.pack(anchor="w")
+        ctk.CTkLabel(rangee, text=phrase, font=police(12), text_color=TEXTE_SECONDAIRE).pack(side="left", padx=(0, 6))
+        occupe = police(12).measure(phrase) + 6
         for variable in conseilles:
-            libelle = libelle_court(variable.nom)
-            elements.append((police(12, True).measure(libelle) + 36, lambda rangee, nom=variable.nom, texte=libelle:
-                             pastille(rangee, texte, lambda: self._defiler_vers(self._champs[nom])).pack(
-                                 side="left", padx=2)))
-        rangee, occupe = None, 0.0
-        for largeur, creer in elements:
-            if rangee is None or (occupe and occupe + largeur > disponible):
+            texte = libelle_court(variable.nom)
+            largeur_pastille = police(12, True).measure(texte) + 36  # texte + marges du bouton
+            if occupe + largeur_pastille > disponible:
                 rangee = ctk.CTkFrame(self._conseils, fg_color="transparent")
-                rangee.pack(anchor="w", pady=(0 if occupe == 0 else 4, 0))
-                occupe = 0.0
-            creer(rangee)
-            occupe += largeur
-
-    def _choisir_graphique(self, choix: str) -> None:
-        """Appelé par le sélecteur de graphique."""
-        self._graphique = self.GRAPHIQUES[choix]
-        self._afficher_graphique()
-
-    def _afficher_graphique(self) -> None:
-        """Dessine le graphique choisi et son mode d'emploi."""
-        theme = theme_graphique()
-        if self._graphique == "effets":
-            if self._prediction is None:
-                figure = figure_vide("Cliquez sur « Prédire » pour voir ce qui influence le résultat.", theme)
-            else:
-                valeurs = {nom: self._application.variable(nom).formater(valeur)
-                           for nom, valeur in self._prediction.valeurs_connues.items()}
-                figure = figure_effets(self._prediction.effets, valeurs, theme=theme)
-            lecture = ("Rouge : l'information fait monter le risque ; vert : elle le fait baisser. "
-                       "La longueur de la barre montre de combien, en points de pourcentage.")
-        else:
-            connus = (self._prediction.valeurs_connues if self._prediction
-                      else self._application.champs_renseignes(self._saisies()))
-            figure = figure_risque_reel(self._application.tranches_de_risque(connus),
-                                        self._prediction.probabilite if self._prediction else None, theme=theme)
-            lecture = ("Le % affiché est un score, pas une probabilité exacte. Chaque barre montre combien "
-                       "d'employés du test au score semblable sont vraiment partis.")
-        self._carte_graphique.zone.afficher(figure)
-        self._carte_graphique.expliquer(lecture)
-
-    def changer_theme(self) -> None:
-        """Redessine le graphique aux couleurs du nouveau thème."""
-        self._afficher_graphique()
+                rangee.pack(anchor="w", pady=(4, 0))
+                occupe = 0
+            champ = self._champs[variable.nom]
+            pastille(rangee, texte, lambda c=champ: self._defiler_vers(c)).pack(side="left", padx=2)
+            occupe += largeur_pastille
 
     # ----- Actions --------------------------------------------------------------------
 
@@ -371,7 +320,7 @@ class PagePrediction(ctk.CTkFrame):
             self._apres_enregistrement()
 
     def _afficher_prediction(self, prediction: Prediction) -> None:
-        """Risque, badge coloré, phrase en langage courant et facteurs principaux."""
+        """Risque, badge coloré, phrase en langage courant, facteurs principaux et graphique."""
         couleur_niveau, fond = NIVEAUX[prediction.niveau]
         self._risque.configure(text=pourcentage(prediction.probabilite), text_color=couleur_niveau)
         self._badge.configure(text=f"   Risque {prediction.niveau}   ",
@@ -381,7 +330,7 @@ class PagePrediction(ctk.CTkFrame):
         self._phrase.configure(text=self._application.phrase_resultat(prediction))
         self._afficher_facteurs(prediction)
         self.maj_indicateur()
-        self._afficher_graphique()
+        self._carte_graphique.redessiner()
 
     def _afficher_facteurs(self, prediction: Prediction) -> None:
         """Les trois informations qui pèsent le plus, avec leur effet en points."""
@@ -420,7 +369,7 @@ class PagePrediction(ctk.CTkFrame):
         self._facteurs.pack_forget()
         self._afficher_message("")
         self.maj_indicateur()
-        self._afficher_graphique()
+        self._carte_graphique.redessiner()
 
     def remplir(self, saisies: dict[str, str], message: str) -> None:
         """Remplace tout le formulaire par saisies (ex. un exemple ou une ligne de l'historique)."""
@@ -448,9 +397,7 @@ class PagePrediction(ctk.CTkFrame):
 
 class PageFonctionnement(ctk.CTkScrollableFrame):
     """« Comment ça marche », à lire de haut en bas : fonctionnement et entraînement en schémas,
-    résultats et limites, détails techniques (repliés), raccourcis clavier et sources."""
-
-    GRAPHIQUES = {"Bonnes et mauvaises réponses": "matrice", "Variables utiles": "importances"}
+    précision et graphiques, limites, détails techniques (repliés), raccourcis clavier et sources."""
 
     def __init__(self, parent: ctk.CTkBaseClass, application: Application) -> None:
         super().__init__(parent, fg_color="transparent", scrollbar_button_color=BORDURE,
@@ -459,10 +406,13 @@ class PageFonctionnement(ctk.CTkScrollableFrame):
         lignes = meta["lignes"]
         precision = meta["metriques_test"][meta["modele"]]["exactitude_equilibree"]
         hasard = pourcentage(meta["metriques_test"]["Référence (classe majoritaire)"]["exactitude_equilibree"])
-        entete(self, "Comment ça marche",
-               f"L'application estime le risque qu'un employé quitte son entreprise à partir de son profil "
-               f"(jusqu'à {len(application.variables)} informations), avec un modèle qui a appris sur "
-               f"{lignes['total']} employés fictifs.").pack(anchor="w", fill="x", padx=4, pady=(0, 14))
+
+        ctk.CTkLabel(self, text="Comment ça marche", font=police(26, True), text_color=TEXTE).pack(anchor="w",
+                                                                                                padx=4)
+        texte_long(self, f"L'application estime le risque qu'un employé quitte son entreprise à partir de son "
+                         f"profil (jusqu'à {len(application.variables)} informations), avec un modèle qui a appris "
+                         f"sur {lignes['total']} employés fictifs.", 13, conteneur=self, marge=20).pack(
+            anchor="w", fill="x", padx=4, pady=(0, 14))
 
         self._schemas = [
             self._carte_schema("Comment le modèle décide", [
@@ -481,16 +431,20 @@ class PageFonctionnement(ctk.CTkScrollableFrame):
             ]),
         ]
 
-        Tuile(self, "Précision (exactitude équilibrée)", pourcentage(precision),
-              f"Sur 100 employés (50 partis, 50 restés), le modèle en classe correctement environ "
-              f"{precision * 100:.0f}. Au hasard : {hasard}.", ACCENT).pack(fill="x", padx=4, pady=(0, 10))
-        self._carte_graphique = CarteGraphique(self, list(self.GRAPHIQUES), self._choisir_graphique)
+        # Tuile : la précision du modèle en grand.
+        tuile = Carte(self)
+        tuile.pack(fill="x", padx=4, pady=(0, 10))
+        etiquette_titre(tuile, "Précision (exactitude équilibrée)").pack(anchor="w", padx=18, pady=(16, 0))
+        ctk.CTkLabel(tuile, text=pourcentage(precision), font=police(30, True), text_color=ACCENT).pack(anchor="w",
+                                                                                                    padx=18)
+        texte_long(tuile, f"Sur 100 employés (50 partis, 50 restés), le modèle en classe correctement environ "
+                          f"{precision * 100:.0f}. Au hasard : {hasard}.", 12, conteneur=tuile).pack(
+            anchor="w", fill="x", padx=18, pady=(0, 16))
+
         # La page défile : le graphique reçoit une hauteur fixe au lieu de remplir la fenêtre.
-        self._carte_graphique.zone.configure(height=380)
-        self._carte_graphique.zone.pack_propagate(False)
+        self._carte_graphique = CarteGraphique(self, {"Bonnes et mauvaises réponses": self._figure_matrice,
+                                                      "Variables utiles": self._figure_importances}, hauteur=380)
         self._carte_graphique.pack(fill="x", padx=4, pady=(0, 10))
-        self._graphique = next(iter(self.GRAPHIQUES.values()))
-        self._afficher_graphique()
 
         departs_test = sum(meta["matrice_confusion"][1])
         self._carte_texte("Limites", f"• Seulement {departs_test} départs parmi les employés de test : la "
@@ -533,13 +487,11 @@ class PageFonctionnement(ctk.CTkScrollableFrame):
         reference = meta["metriques_test"]["Référence (classe majoritaire)"]
         carte = Carte(self)
         carte.pack(fill="x", padx=4, pady=(0, 10))
-        self._bouton_details = ctk.CTkButton(carte, text="", command=self.basculer_details, anchor="w", height=40,
-                                             corner_radius=10, fg_color="transparent", hover_color=SURVOL,
-                                             text_color=TEXTE, font=police(16, True))
+        self._bouton_details = ctk.CTkButton(carte, text="▸   Détails techniques", command=self.basculer_details,
+                                             anchor="w", height=40, corner_radius=10, fg_color="transparent",
+                                             hover_color=SURVOL, text_color=TEXTE, font=police(16, True))
         self._bouton_details.pack(fill="x", padx=8, pady=8)
-        self._details = ctk.CTkFrame(carte, fg_color="transparent")
-        self._details_ouverts = False
-        self._maj_bouton_details()
+        self._details = ctk.CTkFrame(carte, fg_color="transparent")  # affiché par basculer_details
 
         etiquette_titre(self._details, "Comparaison des modèles (jeu de test)").pack(anchor="w", padx=12, pady=(0, 6))
         echelle = ctk.ScalingTracker.get_widget_scaling(self)
@@ -550,15 +502,16 @@ class PageFonctionnement(ctk.CTkScrollableFrame):
         for cle, (titre, largeur) in colonnes.items():
             self._tableau.heading(cle, text=titre)
             self._tableau.column(cle, width=int(largeur * echelle), anchor="w" if cle == "modele" else "center")
-        self._colorer_tableau()
+        # Le modèle retenu est écrit dans la couleur d'accent (refait à chaque changement de thème).
+        self._tableau.tag_configure("retenu", foreground=couleur(ACCENT))
         for nom, resultats in meta["metriques_test"].items():
             self._tableau.insert("", "end", tags=("retenu",) if nom == meta["modele"] else (), values=(
                 nom, pourcentage(resultats["exactitude_equilibree"]), pourcentage(meta["validation_croisee"][nom]),
-                pourcentage(resultats["exactitude"]), self._decimal(resultats.get("auc", 0.5))))
+                pourcentage(resultats["exactitude"]), decimal(resultats.get("auc", 0.5))))
         self._tableau.pack(fill="x", padx=12)
 
         definitions = [
-            ("AUC", f"{self._decimal(retenu.get('auc', 0.5))} : chance qu'un employé parti reçoive un score plus "
+            ("AUC", f"{decimal(retenu.get('auc', 0.5))} : chance qu'un employé parti reçoive un score plus "
                     "haut qu'un employé resté (hasard : 0,50)."),
             ("Validation croisée", f"{pourcentage(meta['validation_croisee'][meta['modele']])} : la même mesure, "
                                    f"faite avant le test sur les {meta['lignes']['entrainement']} employés "
@@ -575,55 +528,35 @@ class PageFonctionnement(ctk.CTkScrollableFrame):
             etiquette_titre(self._details, titre).pack(anchor="w", padx=12, pady=(16, 2))
             texte_long(self._details, texte, 12, conteneur=carte, marge=70).pack(anchor="w", fill="x", padx=12)
 
-    @staticmethod
-    def _decimal(valeur: float) -> str:
-        """0.8125 -> « 0,81 » (virgule décimale)."""
-        return f"{valeur:.2f}".replace(".", ",")
+    # ----- Graphiques et réactions ----------------------------------------------------
 
-    # ----- Réactions ------------------------------------------------------------------
+    def _figure_matrice(self) -> tuple[Figure, str]:
+        """« Bonnes et mauvaises réponses » : la matrice de confusion du jeu de test."""
+        return (figure_matrice_confusion(self._meta["matrice_confusion"], theme=theme_graphique()),
+                "Chaque case compte des employés du test : en vert, le modèle a vu juste ; en rouge, il "
+                "s'est trompé. Il préfère lancer une fausse alerte plutôt que de rater un départ.")
+
+    def _figure_importances(self) -> tuple[Figure, str]:
+        """« Variables utiles » : importance de chaque variable pour le modèle."""
+        return (figure_importances(self._meta["importances"], theme=theme_graphique()),
+                "Plus la barre est longue, plus le modèle a besoin de cette information. C'est aussi "
+                "l'ordre des champs conseillés dans le formulaire.")
 
     def basculer_details(self) -> None:
-        """Ouvre ou ferme la section « Détails techniques »."""
-        self._details_ouverts = not self._details_ouverts
-        if self._details_ouverts:
+        """Ouvre ou ferme la section « Détails techniques » (flèche ▸ fermée, ▾ ouverte)."""
+        ouvrir = not self._details.winfo_manager()  # "" quand la section n'est pas affichée
+        if ouvrir:
             self._details.pack(fill="x", padx=12, pady=(0, 16), after=self._bouton_details)
         else:
             self._details.pack_forget()
-        self._maj_bouton_details()
-
-    def _maj_bouton_details(self) -> None:
-        """Flèche ▸ (fermé) ou ▾ (ouvert) devant le titre de la section."""
-        self._bouton_details.configure(text=f"{'▾' if self._details_ouverts else '▸'}   Détails techniques")
-
-    def _colorer_tableau(self) -> None:
-        """Le modèle retenu est écrit dans la couleur d'accent du thème actif."""
-        self._tableau.tag_configure("retenu", foreground=couleur(ACCENT))
-
-    def _choisir_graphique(self, choix: str) -> None:
-        """Appelé par le sélecteur de graphique."""
-        self._graphique = self.GRAPHIQUES[choix]
-        self._afficher_graphique()
-
-    def _afficher_graphique(self) -> None:
-        """Dessine le graphique d'évaluation choisi et son mode d'emploi."""
-        meta, theme = self._meta, theme_graphique()
-        if self._graphique == "matrice":
-            figure = figure_matrice_confusion(meta["matrice_confusion"], theme=theme)
-            lecture = ("Chaque case compte des employés du test : en vert, le modèle a vu juste ; en rouge, il "
-                       "s'est trompé. Il préfère lancer une fausse alerte plutôt que de rater un départ.")
-        else:
-            figure = figure_importances(meta["importances"], theme=theme)
-            lecture = ("Plus la barre est longue, plus le modèle a besoin de cette information. C'est aussi "
-                       "l'ordre des champs conseillés dans le formulaire.")
-        self._carte_graphique.zone.afficher(figure)
-        self._carte_graphique.expliquer(lecture)
+        self._bouton_details.configure(text=f"{'▾' if ouvrir else '▸'}   Détails techniques")
 
     def changer_theme(self) -> None:
         """Redessine les schémas et le graphique, recolore le tableau."""
         for schema in self._schemas:
             schema.dessiner()
-        self._colorer_tableau()
-        self._afficher_graphique()
+        self._tableau.tag_configure("retenu", foreground=couleur(ACCENT))
+        self._carte_graphique.redessiner()
 
 
 class PageHistorique(ctk.CTkFrame):
@@ -635,7 +568,7 @@ class PageHistorique(ctk.CTkFrame):
         super().__init__(parent, fg_color="transparent")
         self._application = application
         self._recharger = recharger
-        self._lignes: dict[str, dict[str, str]] = {}
+        self._lignes: dict[str, dict[str, str]] = {}  # identifiant de ligne du tableau -> ligne du CSV
         self.columnconfigure(0, weight=3, uniform="colonnes")
         self.columnconfigure(1, weight=2, uniform="colonnes")
         self.rowconfigure(1, weight=1)
@@ -681,7 +614,7 @@ class PageHistorique(ctk.CTkFrame):
         self.rafraichir()
 
     def rafraichir(self) -> None:
-        """Relit le fichier d'historique et remplit le tableau."""
+        """Relit le fichier d'historique et remplit le tableau (aux couleurs du thème actif)."""
         try:
             lignes = self._application.historique.lire()
         except (DonneeInvalideError, OSError) as erreur:
@@ -706,6 +639,7 @@ class PageHistorique(ctk.CTkFrame):
         self._ecrire_detail("")
         self._bouton_recharger.configure(state="disabled")
 
+    # Changer de thème : il suffit de remplir le tableau à nouveau avec les nouvelles couleurs.
     changer_theme = rafraichir
 
     @staticmethod
@@ -727,12 +661,12 @@ class PageHistorique(ctk.CTkFrame):
         if ligne is None:
             return
         try:
-            saisies = json.loads(ligne["saisies"])
-            lignes = [f"{self._application.variable(nom).libelle} : "
-                      f"{self._application.variable(nom).formater(valeur)}" for nom, valeur in saisies.items()]
-        except (json.JSONDecodeError, AttributeError, DonneeInvalideError):
-            lignes = [ligne["saisies"]]
-        self._ecrire_detail("\n".join(lignes))
+            saisies = self._application.saisies_depuis_historique(ligne)
+            texte = "\n".join(f"{self._application.variable(nom).libelle} : {valeur}"
+                              for nom, valeur in saisies.items() if valeur)
+        except DonneeInvalideError:
+            texte = ligne["saisies"]  # ligne abîmée : on montre le texte brut du fichier
+        self._ecrire_detail(texte)
         self._bouton_recharger.configure(state="normal")
 
     def _recharger_selection(self) -> None:

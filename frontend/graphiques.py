@@ -11,32 +11,25 @@ from matplotlib.ticker import FuncFormatter
 from backend.style import couleurs, habiller, legende, libelle_court, nouvelle_figure
 
 FORMAT_POURCENT = FuncFormatter(lambda valeur, _: f"{valeur:.0f} %")
+NB_EFFETS = 8  # nombre maximal de barres du graphique des facteurs
 
 
-def figure_effets(effets: dict[str, float], valeurs_affichees: dict[str, str] | None = None, nb: int = 8,
-                  message_vide: str = "Aucun champ renseigné", theme: str = "sombre") -> Figure:
+def figure_effets(effets: dict[str, float], valeurs_affichees: dict[str, str], theme: str = "sombre") -> Figure:
     """Barres horizontales : de combien chaque information saisie fait monter ou baisser le risque.
 
-    effets : {nom : effet entre -1 et 1} ; valeurs_affichees : {nom : valeur saisie, en texte}.
+    effets : {nom : effet entre -1 et 1}, au moins un champ ; valeurs_affichees : {nom : valeur saisie, en texte}.
     """
     palette = couleurs(theme)
     hausse, baisse = palette["rouge"], palette["vert"]
-    valeurs_affichees = valeurs_affichees or {}
     figure = nouvelle_figure(theme)
     axe = figure.add_subplot()
-    principaux = sorted(effets.items(), key=lambda paire: abs(paire[1]), reverse=True)[:nb]
+    principaux = sorted(effets.items(), key=lambda paire: abs(paire[1]), reverse=True)[:NB_EFFETS]
     principaux.reverse()
     habiller(axe, theme, "", "Écart de risque (points de %)", "")
     # Titre aligné sur le bord de la figure : les longues étiquettes poussent l'axe vers la droite.
     figure.suptitle("Ce qui pèse dans ce résultat", x=0.02, ha="left", fontsize=11, color=palette["encre"])
-    if not principaux:
-        axe.text(0.5, 0.5, message_vide, ha="center", va="center", transform=axe.transAxes,
-                 color=palette["encre_secondaire"])
-        axe.set_axis_off()
-        return figure
     valeurs = [effet * 100 for _, effet in principaux]
-    etiquettes = [f"{libelle_court(nom)} = {valeurs_affichees[nom]}" if nom in valeurs_affichees
-                  else libelle_court(nom) for nom, _ in principaux]
+    etiquettes = [f"{libelle_court(nom)} = {valeurs_affichees[nom]}" for nom, _ in principaux]
     barres = axe.barh(etiquettes, valeurs, height=0.6,
                       color=[hausse if valeur > 0 else baisse for valeur in valeurs])
     axe.bar_label(barres, labels=[f"{valeur:+.0f}" if round(valeur) else "≈ 0" for valeur in valeurs],

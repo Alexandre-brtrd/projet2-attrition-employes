@@ -11,7 +11,7 @@ from tkinter import messagebox
 import customtkinter as ctk
 import matplotlib
 
-from frontend.application import Application, pourcentage
+from frontend.application import Application, decimal, pourcentage
 from frontend.composants import InfoBulle, etiquette_titre, texte_long
 from frontend.pages import PageFonctionnement, PageHistorique, PagePrediction
 from frontend.theme import (ACCENT_DOUX, AVERTISSEMENT, AVERTISSEMENT_FOND, BARRE_LATERALE, BORDURE, CARTE,
@@ -45,14 +45,15 @@ class FenetrePrincipale(ctk.CTk):
         self.minsize(940, 620)
         self.protocol("WM_DELETE_WINDOW", self._fermer)
         self._pages: dict[str, ctk.CTkBaseClass] = {}
+        # Chaque page a deux boutons (barre large et barre compacte), tous deux mis en évidence.
         self._boutons: dict[str, list[ctk.CTkButton]] = {cle: [] for cle, _, _ in NAVIGATION}
-        self._boutons_theme: list[ctk.CTkButton] = []
+        self._boutons_theme: list[tuple[ctk.CTkButton, bool]] = []  # (bouton, est dans la barre compacte)
         self._page_active = ""
-        self._compact: bool | None = None
+        self._compact: bool | None = None  # None : pas encore décidé (voir _adapter_largeur)
 
     def installer(self, application: Application) -> None:
         """Construit les deux barres latérales, le bandeau d'avertissement, les pages et les raccourcis."""
-        configurer_tableaux(self, ctk.ScalingTracker.get_window_scaling(self))
+        configurer_tableaux(self)
         self.columnconfigure(1, weight=1)
         self.rowconfigure(0, weight=1)
         self._barre_large = self._construire_barre_large(application)
@@ -104,8 +105,7 @@ class FenetrePrincipale(ctk.CTk):
         bouton = ctk.CTkButton(parent, text="", height=36, corner_radius=10, fg_color="transparent",
                                hover_color=SURVOL, border_width=1, border_color=BORDURE, text_color=TEXTE_SECONDAIRE,
                                font=police(13), command=self.changer_theme, width=44 if compact else 140)
-        bouton.compact = compact
-        self._boutons_theme.append(bouton)
+        self._boutons_theme.append((bouton, compact))
         InfoBulle(bouton, "Changer de thème (Ctrl+T). Le thème clair est plus lisible au projecteur.")
         return bouton
 
@@ -131,7 +131,7 @@ class FenetrePrincipale(ctk.CTk):
         etiquette_titre(resume, "Modèle actif").pack(anchor="w", padx=14, pady=(12, 0))
         ctk.CTkLabel(resume, text=meta["modele"], font=police(14, True), text_color=TEXTE).pack(anchor="w", padx=14)
         ctk.CTkLabel(resume, text=f"Précision {pourcentage(retenu['exactitude_equilibree'])} · "
-                                  f"AUC {retenu.get('auc', 0.5):.2f}".replace(".", ","),
+                                  f"AUC {decimal(retenu.get('auc', 0.5))}",
                      font=police(12), text_color=TEXTE_SECONDAIRE).pack(anchor="w", padx=14, pady=(0, 12))
 
         # Avertissement exigé par l'énoncé (domaine de l'emploi) : visible sur toutes les pages.
@@ -161,16 +161,16 @@ class FenetrePrincipale(ctk.CTk):
         # puis rend le focus au widget qui l'avait : ce ne doit pas être un graphique qui va être recréé.
         self.focus_set()
         basculer_theme()
-        configurer_tableaux(self, ctk.ScalingTracker.get_window_scaling(self))
+        configurer_tableaux(self)
         for page in self._pages.values():
             page.changer_theme()
         self._maj_boutons_theme()
 
     def _maj_boutons_theme(self) -> None:
-        """Le bouton annonce le thème vers lequel il bascule."""
+        """Le bouton annonce le thème vers lequel il bascule (icône seule dans la barre compacte)."""
         icone, texte = ("☀", "Thème clair") if mode_sombre() else ("☾", "Thème sombre")
-        for bouton in self._boutons_theme:
-            bouton.configure(text=icone if bouton.compact else f"{icone}   {texte}")
+        for bouton, compact in self._boutons_theme:
+            bouton.configure(text=icone if compact else f"{icone}   {texte}")
 
     def _redimensionnee(self, evenement: tk.Event) -> None:
         """Appelé quand un widget change de taille ; seule la fenêtre elle-même nous intéresse."""

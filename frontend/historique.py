@@ -18,11 +18,6 @@ class Historique:
         """Reçoit le chemin du fichier ; il est créé à la première prédiction."""
         self._chemin = chemin
 
-    @property
-    def chemin(self) -> str:
-        """Chemin du fichier CSV."""
-        return self._chemin
-
     def ajouter(self, ligne: dict[str, str]) -> None:
         """Ajoute une ligne à la fin du fichier (avec l'en-tête si le fichier est neuf).
 

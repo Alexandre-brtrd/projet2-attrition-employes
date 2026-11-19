@@ -75,9 +75,10 @@ def police(taille: int = 13, gras: bool = False) -> ctk.CTkFont:
     return ctk.CTkFont(family=POLICE, size=taille, weight="bold" if gras else "normal")
 
 
-def configurer_tableaux(racine: ctk.CTk, echelle: float) -> None:
+def configurer_tableaux(racine: ctk.CTk) -> None:
     """Style des tableaux ttk.Treeview (CustomTkinter n'a pas de tableau), à refaire à chaque
     changement de thème."""
+    echelle = ctk.ScalingTracker.get_window_scaling(racine)
     carte, relief = couleur(CARTE), couleur(CARTE_RELIEF)
     style = ttk.Style(racine)
     style.theme_use("clam")

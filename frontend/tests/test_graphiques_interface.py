@@ -15,13 +15,12 @@ def _textes(figure: Figure) -> str:
     return " ".join(texte.get_text() for texte in figure.axes[0].texts)
 
 
-def test_effets_et_message_sans_donnees():
-    figure = figure_effets({"OverTime": 0.2, "Age": -0.05}, {"OverTime": "Oui"})
+def test_effets():
+    figure = figure_effets({"OverTime": 0.2, "Age": -0.05}, {"OverTime": "Oui", "Age": "30"})
     assert len(figure.axes[0].patches) == 2
     etiquettes = [etiquette.get_text() for etiquette in figure.axes[0].get_yticklabels()]
     assert "Heures supplémentaires = Oui" in etiquettes
-    vide = figure_effets({}, message_vide="Rien à afficher")
-    assert not vide.axes[0].axison
+    assert "Âge = 30" in etiquettes
 
 
 def test_risque_reel_met_en_evidence_la_tranche_de_l_employe():
