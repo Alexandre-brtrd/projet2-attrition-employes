@@ -12,7 +12,7 @@ from matplotlib.figure import Figure
 from sklearn.model_selection import train_test_split
 
 from backend.metriques import matrice_confusion
-from backend.modeles import ModeleForetAleatoire, ModeleLogistique, ModeleReference
+from backend.modeles import ModeleLogistique, ModeleReference
 from backend.saisie_partielle import courbe_precision, courbe_precision_aleatoire
 from backend.config import (CHEMIN_CSV, COLONNE_CIBLE, DESCRIPTIONS, DOSSIER_FIGURES, DOSSIER_SAUVEGARDE,
                           GRAINE, NB_TIRAGES_COURBE, NOM_JEU_TEST, NOM_METADONNEES, NOM_MODELE,
@@ -74,16 +74,16 @@ def entrainer_et_sauvegarder(chemin_csv: str = CHEMIN_CSV, dossier_sauvegarde: s
     X_entr, X_test, y_entr, y_test = jeu.separer(PROPORTION_TEST, graine)
     variables = creer_variables(X_entr)
     numeriques, categorielles = colonnes_par_encodage(variables)
-    candidats = [ModeleReference(numeriques, categorielles, graine),
-                 ModeleLogistique(numeriques, categorielles, graine),
-                 ModeleForetAleatoire(numeriques, categorielles, graine)]
+    # Deux modèles comparés : la référence (toujours « reste ») sert d'étalon, la régression
+    # logistique est le seul modèle sauvegardé et utilisé par l'application.
+    reference_triviale = ModeleReference(numeriques, categorielles, graine)
+    retenu = ModeleLogistique(numeriques, categorielles, graine)
     metriques, validation = {}, {}
-    for modele in candidats:
+    for modele in (reference_triviale, retenu):
+        # Validation croisée sur l'entraînement ; le test ne sert qu'à mesurer, une seule fois.
         validation[modele.nom] = modele.validation_croisee(X_entr, y_entr)
         modele.entrainer(X_entr, y_entr)
         metriques[modele.nom] = modele.evaluer(X_test, y_test)
-    # Choix selon la validation croisée sur l'entraînement : le test ne sert qu'à mesurer.
-    retenu = max(candidats[1:], key=lambda modele: validation[modele.nom])
 
     # Employés de référence : remplacent les champs vides (voir saisie_partielle.py).
     reference = X_entr.sample(n=TAILLE_REFERENCE, random_state=graine)

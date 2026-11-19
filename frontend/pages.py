@@ -545,7 +545,7 @@ class PageFonctionnement(ctk.CTkScrollableFrame):
         echelle = ctk.ScalingTracker.get_widget_scaling(self)
         colonnes = {"modele": ("Modèle", 170), "equilibree": ("Précision", 72), "validation": ("Valid. cr.", 72),
                     "exactitude": ("Exactitude", 72), "auc": ("AUC", 48)}
-        self._tableau = ttk.Treeview(self._details, columns=list(colonnes), show="headings", height=3,
+        self._tableau = ttk.Treeview(self._details, columns=list(colonnes), show="headings", height=2,
                                      selectmode="none", style="Theme.Treeview")
         for cle, (titre, largeur) in colonnes.items():
             self._tableau.heading(cle, text=titre)
@@ -562,7 +562,7 @@ class PageFonctionnement(ctk.CTkScrollableFrame):
                     "haut qu'un employé resté (hasard : 0,50)."),
             ("Validation croisée", f"{pourcentage(meta['validation_croisee'][meta['modele']])} : la même mesure, "
                                    f"faite avant le test sur les {meta['lignes']['entrainement']} employés "
-                                   "d'entraînement (5 essais). Elle a servi à choisir le modèle."),
+                                   "d'entraînement (5 essais). Elle a servi à comparer le modèle à la référence."),
             ("Précision = exactitude équilibrée", "C'est la moyenne entre la part des départs bien détectés et "
              "celle des maintiens bien détectés : répondre toujours la même chose donne 50 %. L'exactitude simple "
              f"serait trompeuse : répondre toujours « reste » donne déjà {pourcentage(reference['exactitude'])}."),

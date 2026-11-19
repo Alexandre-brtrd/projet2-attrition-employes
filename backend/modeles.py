@@ -3,8 +3,7 @@
 Hiérarchie :
     Modele (abstraite)       prétraitement, entraînement, prédiction, évaluation, sauvegarde
     ├── ModeleReference      répond toujours la classe majoritaire (point de comparaison)
-    ├── ModeleLogistique     régression logistique (modèle retenu)
-    └── ModeleForetAleatoire forêt aléatoire (modèle comparé)
+    └── ModeleLogistique     régression logistique (seul modèle utilisé par l'application)
 """
 
 import functools
@@ -20,7 +19,6 @@ import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
@@ -208,14 +206,4 @@ class ModeleLogistique(Modele):
 
     def _creer_estimateur(self) -> LogisticRegression:
         return LogisticRegression(class_weight="balanced", max_iter=1000)
-
-
-class ModeleForetAleatoire(Modele):
-    """Forêt de 300 arbres ; min_samples_leaf limite le surapprentissage sur 1100 employés."""
-
-    nom = "Forêt aléatoire"
-
-    def _creer_estimateur(self) -> RandomForestClassifier:
-        return RandomForestClassifier(n_estimators=300, min_samples_leaf=5,
-                                      class_weight="balanced", random_state=self._graine)
 

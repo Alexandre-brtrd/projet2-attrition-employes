@@ -1,5 +1,5 @@
 {
-  "date_entrainement": "2026-10-30T22:00:06",
+  "date_entrainement": "2026-11-18T19:55:44",
   "source": "IBM HR Analytics Employee Attrition & Performance (Kaggle, ODbL / DbCL)",
   "cible": {
     "colonne": "Attrition",
@@ -8,7 +8,7 @@
   },
   "modele": "Régression logistique",
   "seuil_decision": 0.5,
-  "duree_entrainement_s": 0.018805200001224875,
+  "duree_entrainement_s": 0.010829666018253192,
   "lignes": {
     "total": 1470,
     "entrainement": 1102,
@@ -468,20 +468,11 @@
       "precision_depart": 0.40217391304347827,
       "f1_depart": 0.490066225165563,
       "auc": 0.8125171411332346
-    },
-    "Forêt aléatoire": {
-      "exactitude_equilibree": 0.7351214963523669,
-      "exactitude": 0.8315217391304348,
-      "rappel_depart": 0.5932203389830508,
-      "precision_depart": 0.4794520547945205,
-      "f1_depart": 0.5303030303030303,
-      "auc": 0.7767538807525644
     }
   },
   "validation_croisee": {
     "Référence (classe majoritaire)": 0.5,
-    "Régression logistique": 0.7557571857571859,
-    "Forêt aléatoire": 0.7375587077760991
+    "Régression logistique": 0.7557571857571859
   },
   "matrice_confusion": [
     [

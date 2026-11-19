@@ -18,7 +18,7 @@ Python 3.11 ou plus récent, depuis le dossier du dépôt :
 python -m pip install -r requirements.txt
 python main.py               # ouvre l'interface graphique
 python main.py entrainer     # (re)entraîne le modèle, environ 25 s
-python -m pytest             # lance les 155 tests (dont 13 qui ouvrent la vraie fenêtre)
+python -m pytest             # lance les 179 tests (dont 16 qui ouvrent la vraie fenêtre)
 python -m coverage run -m pytest && python -m coverage report   # couverture
 ```
 
@@ -43,7 +43,7 @@ backend/
 ├── exceptions.py        ErreurProjet → DonneeInvalideError → SaisieInvalideError, FichierIntrouvableError, ...
 ├── variables.py         Variable (abstraite) → VariableNumerique, VariableCategorielle → VariableOrdinale
 ├── jeu_de_donnees.py    JeuDeDonnees : lecture par blocs, nettoyage, séparation ; lecture/écriture JSON et CSV
-├── modeles.py           Modele (abstraite) → ModeleReference, ModeleLogistique, ModeleForetAleatoire
+├── modeles.py           Modele (abstraite) → ModeleReference, ModeleLogistique
 ├── metriques.py         métriques NumPy vectorisées (comparées à scikit-learn dans les tests)
 ├── saisie_partielle.py  prédiction avec champs vides, précision attendue, effet de chaque champ
 ├── entrainement.py      pipeline complet : exploration, comparaison, sauvegarde
@@ -129,11 +129,12 @@ donne déjà 84 %.
 |---|---|---|---|---|---|
 | Référence (classe majoritaire) | 50,0 % | 50,0 % | 84,0 % | 0 % | 0,50 |
 | **Régression logistique (retenue)** | **72,5 %** | **75,6 %** | 79,1 % | 62,7 % | 0,81 |
-| Forêt aléatoire | 73,5 % | 73,8 % | 83,2 % | 59,3 % | 0,78 |
 
-Le modèle est choisi par validation croisée sur l'entraînement (le test ne sert qu'à mesurer). La
-forêt fait un peu mieux sur le test (+1 point), mais moins bien en validation croisée et en AUC :
-avec 59 départs seulement, cet écart est dans l'incertitude (environ ± 3 points).
+Deux modèles sont comparés : la référence, qui répond toujours « reste », sert d'étalon ; la
+régression logistique est le seul modèle sauvegardé et utilisé par l'application. La comparaison se
+fait d'abord par validation croisée sur l'entraînement, puis une seule fois sur le test : la
+régression gagne environ 25 points d'exactitude équilibrée. Avec 59 départs seulement dans le test,
+l'incertitude est d'environ ± 3 points.
 
 **Précision selon les champs remplis** (exactitude équilibrée sur le test) :
 
@@ -188,7 +189,7 @@ méthodes spéciales `__str__`, `__repr__`, `__eq__`, `__hash__`, `__len__`.
 
 ## Tests et couverture
 
-155 tests pytest, dans `backend/tests/` et `frontend/tests/` : cas usuels, cas limites (bornes
+179 tests pytest, dans `backend/tests/` et `frontend/tests/` : cas usuels, cas limites (bornes
 incluses, formulaire vide, une seule classe) et cas d'erreur (`pytest.raises`), avec `pytest.approx`
 pour les flottants. Les métriques NumPy et le calcul vectorisé des champs vides sont vérifiés contre
 scikit-learn et contre une boucle écrite à la main. GitHub Actions lance les tests à chaque `push`

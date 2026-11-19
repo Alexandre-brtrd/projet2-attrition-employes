@@ -6,7 +6,7 @@ import pytest
 
 from backend.entrainement import colonnes_par_encodage
 from backend.exceptions import DonneeInvalideError, FichierIntrouvableError, ModeleNonEntraineError
-from backend.modeles import Modele, ModeleForetAleatoire, ModeleLogistique, ModeleReference
+from backend.modeles import Modele, ModeleLogistique, ModeleReference
 
 
 @pytest.fixture(scope="module")
@@ -62,13 +62,6 @@ def test_le_decorateur_mesure_la_duree(modele_logistique):
 def test_validation_croisee_de_la_reference(colonnes, separation):
     X_entr, _, y_entr, _ = separation
     assert ModeleReference(*colonnes).validation_croisee(X_entr, y_entr) == pytest.approx(0.5)
-
-
-def test_foret_reproductible_avec_la_meme_graine(colonnes, separation):
-    X_entr, X_test, y_entr, _ = separation
-    premiere = ModeleForetAleatoire(*colonnes, graine=7).entrainer(X_entr, y_entr)
-    seconde = ModeleForetAleatoire(*colonnes, graine=7).entrainer(X_entr, y_entr)
-    assert premiere.probabilites_depart(X_test) == pytest.approx(seconde.probabilites_depart(X_test))
 
 
 def test_sauvegarde_puis_rechargement(tmp_path, modele_logistique, separation):

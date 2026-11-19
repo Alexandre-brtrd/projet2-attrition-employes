@@ -218,7 +218,7 @@ def test_page_comment_ca_marche(fenetre):
     assert not page._details.winfo_manager()  # détails techniques fermés au départ
     page.basculer_details()
     assert page._details.winfo_manager() == "pack"
-    assert len(page._tableau.get_children()) == 3
+    assert len(page._tableau.get_children()) == 2  # référence + régression logistique
     page.basculer_details()
     assert not page._details.winfo_manager()
     for choix in page.GRAPHIQUES:
