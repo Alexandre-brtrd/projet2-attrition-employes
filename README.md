@@ -47,7 +47,7 @@ backend/
 ├── metriques.py         métriques NumPy vectorisées (comparées à scikit-learn dans les tests)
 ├── saisie_partielle.py  prédiction avec champs vides, précision attendue, effet de chaque champ
 ├── entrainement.py      pipeline complet : exploration, comparaison, sauvegarde
-├── style.py             thèmes clair (figures enregistrées) et sombre (interface) des graphiques
+├── style.py             couleurs claires et sombres des graphiques
 ├── graphiques.py        graphiques d'exploration et d'évaluation
 ├── donnees/             jeu de données IBM (CSV)
 ├── sauvegarde/          modèle (joblib), métadonnées (JSON), jeu de test et employés de référence (CSV)
@@ -70,9 +70,11 @@ main.py                  point d'entrée (argparse)
 `application.py` et `historique.py` ne dépendent d'aucune fenêtre : ils sont testés. Les fichiers
 d'affichage (`fenetre.py`, `pages.py`, `composants.py`) n'effectuent aucun calcul : ils appellent
 `Application`. Chaque page décrit ses graphiques par des méthodes qui renvoient (figure, texte
-« Comment lire ») ; `CarteGraphique` s'occupe du sélecteur, de l'affichage et du redessin. À la racine se trouvent aussi les fichiers exigés par l'énoncé (`README.md`,
-`requirements.txt`, avec `DECISIONS.md`, `JOURNAL_IA.md` et l'énoncé dans `docs/`), la configuration des tests (`pyproject.toml`)
-et la CI (`.github/workflows/`, emplacement imposé par GitHub).
+« Comment lire ») ; `CarteGraphique` s'occupe du sélecteur, de l'affichage et du redessin.
+
+À la racine se trouvent aussi `requirements.txt`, la configuration des tests (`pyproject.toml`)
+et la CI (`.github/workflows/`, emplacement imposé par GitHub). `DECISIONS.md`, `JOURNAL_IA.md`
+et l'énoncé sont dans `docs/`.
 
 ## Utilisation
 
@@ -118,6 +120,21 @@ passe sous son libellé.
 **Cible :** `Attrition` (l'employé a-t-il quitté l'entreprise ? 16 % de « oui »), donc une
 **classification binaire**. Nous voulions d'abord prédire la satisfaction au travail, mais elle n'est
 pas prévisible avec ces données (voir [DECISIONS.md](docs/DECISIONS.md)).
+
+**Exploration et nettoyage** (`JeuDeDonnees.nettoyer`, rapport enregistré dans
+`metadonnees.json`) :
+
+- aucune valeur manquante, aucun doublon, aucune valeur non numérique dans une colonne numérique ;
+  le code les gère quand même (testé sur un fichier « sale ») ;
+- 8 colonnes retirées : 4 constantes ou identifiants (`EmployeeCount`, `StandardHours`, `Over18`,
+  `EmployeeNumber`), 3 taux (`DailyRate`, `HourlyRate`,
+  `MonthlyRate`, corrélation avec le salaire mensuel inférieure à 0,03 : du bruit) et le genre (motif de discrimination interdit, apport inférieur à 1 point) ;
+- valeurs aberrantes (règle 1,5 × EIQ) **conservées** : ce sont des hauts salaires et de longues
+  carrières, plausibles.
+
+Graphique d'exploration : `backend/figures/exploration_taux_depart.png` (taux de départ selon
+les heures supplémentaires, l'état civil, le niveau de poste et les déplacements, comparé au taux
+global de 16 %).
 
 ## Résultats du modèle
 
@@ -185,8 +202,10 @@ méthodes spéciales `__str__`, `__repr__`, `__eq__`, `__hash__`, `__len__`.
 - **Générateur** `lire_par_blocs` ([backend/jeu_de_donnees.py](backend/jeu_de_donnees.py)) :
   produit le CSV 500 lignes à la fois avec `yield from`, ce qui permettrait de lire un fichier trop
   gros pour la mémoire.
-- **Lambda** comme clé de tri : trier les variables par importance, l'historique par date, choisir
-  le modèle de meilleure validation croisée (`max(..., key=lambda modele: ...)`).
+- **Lambda** comme clé de tri : trier les variables par importance
+  ([backend/entrainement.py](backend/entrainement.py)), l'historique par date
+  ([frontend/historique.py](frontend/historique.py)) et les facteurs par effet absolu
+  (`sorted(..., key=lambda paire: abs(paire[1]))`).
 
 ## Tests et couverture
 
